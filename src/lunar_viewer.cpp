@@ -149,16 +149,16 @@ uniform vec3 lightDirection;  // Light direction (will be low angle)
 vec3 getTerrainColor(float normalized) {
     // Terrain colormap: deep blue -> green -> brown -> white
     vec3 colors[5];
-    // colors[0] = vec3(0.1, 0.2, 0.5);  // Deep (low elevation)
-    // colors[1] = vec3(0.3, 0.5, 0.3);  // Green
-    // colors[2] = vec3(0.6, 0.5, 0.3);  // Brown
-    // colors[3] = vec3(0.8, 0.8, 0.7);  // Light
-    // colors[4] = vec3(1.0, 1.0, 1.0);  // White (high elevation)
-    colors[0] = vec3(0.8, 0.8, 0.7);  // Light
-    colors[1] = vec3(0.8, 0.8, 0.7);  // Light
-    colors[2] = vec3(0.8, 0.8, 0.7);  // Light
+    colors[0] = vec3(0.1, 0.2, 0.5);  // Deep (low elevation)
+    colors[1] = vec3(0.3, 0.5, 0.3);  // Green
+    colors[2] = vec3(0.6, 0.5, 0.3);  // Brown
     colors[3] = vec3(0.8, 0.8, 0.7);  // Light
-    colors[4] = vec3(0.8, 0.8, 0.7);  // Light
+    colors[4] = vec3(1.0, 1.0, 1.0);  // White (high elevation)
+    // colors[0] = vec3(0.8, 0.8, 0.7);  // Light
+    // colors[1] = vec3(0.8, 0.8, 0.7);  // Light
+    // colors[2] = vec3(0.8, 0.8, 0.7);  // Light
+    // colors[3] = vec3(0.8, 0.8, 0.7);  // Light
+    // colors[4] = vec3(0.8, 0.8, 0.7);  // Light
 
     float scaled = normalized * 4.0;
     int idx = int(floor(scaled));
@@ -228,10 +228,6 @@ std::vector<float> loadLunarData(const char* filepath, int& outWidth, int& outHe
         
         // Read row
         file.read(reinterpret_cast<char*>(&data[y * MESH_SIZE]), MESH_SIZE * sizeof(float));
-        
-        if (y % 64 == 0) {
-            std::cout << "  Loading row " << y << "/" << MESH_SIZE << std::endl;
-        }
     }
     
     file.close();
@@ -297,6 +293,28 @@ void generateMesh(const std::vector<float>& elevationData, int width, int height
     
     std::cout << "Generated " << vertices.size() / 4 << " vertices and " 
               << indices.size() / 3 << " triangles" << std::endl;
+}
+
+// Update only the elevation values in existing vertices
+void updateMeshElevations(const std::vector<float>& elevationData, int width, int height,
+                          std::vector<float>& vertices) {
+    
+    float scaleZ = 0.01f; // Vertical exaggeration
+    
+    // Update only Z position and elevation values for each vertex
+    // Vertex format: [x, y, z, elevation] - 4 floats per vertex
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int vertexIndex = (y * width + x) * 4;
+            float elevation = elevationData[y * width + x];
+            
+            // Update Z position (index 2)
+            vertices[vertexIndex + 2] = elevation * scaleZ;
+            
+            // Update elevation attribute (index 3)
+            vertices[vertexIndex + 3] = elevation;
+        }
+    }
 }
 
 // Compile shader
@@ -730,19 +748,12 @@ int main(int argc, char** argv) {
             minElev = *std::min_element(elevationData.begin(), elevationData.end());
             maxElev = *std::max_element(elevationData.begin(), elevationData.end());
             
-            // Regenerate mesh
-            vertices.clear();
-            indices.clear();
-            generateMesh(elevationData, width, height, vertices, indices);
+            // Update only the elevation values in the existing mesh
+            updateMeshElevations(elevationData, width, height, vertices);
             
-            // Update GPU buffers
+            // Update only the vertex buffer (indices remain unchanged)
             glBindBuffer(GL_ARRAY_BUFFER, VBO);
-            glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), 
-                         vertices.data(), GL_STATIC_DRAW);
-            
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int),
-                         indices.data(), GL_STATIC_DRAW);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.size() * sizeof(float), vertices.data());
             
             needsReload = false;
             std::cout << "Terrain reloaded successfully!" << std::endl;
@@ -765,8 +776,10 @@ int main(int argc, char** argv) {
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniform1f(minElevLoc, minElev);
-        glUniform1f(maxElevLoc, maxElev);
+        // glUniform1f(minElevLoc, minElev);
+        // glUniform1f(maxElevLoc, maxElev);
+        glUniform1f(minElevLoc, -5000.0f); // Fixed range for better color consistency
+        glUniform1f(maxElevLoc, +5000.0f);
         glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDirection));
         
         // Draw mesh
