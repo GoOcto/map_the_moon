@@ -103,37 +103,46 @@ layout (location = 1) in float aElevation;
 
 out float elevation;
 out vec3 FragPos;
+out vec3 WorldPos;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
 void main() {
+    WorldPos = vec3(model * vec4(aPos, 1.0));
     FragPos = vec3(model * vec4(aPos, 1.0));
     elevation = aElevation;
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }
 )";
 
-// Fragment shader source with terrain coloring
+// Fragment shader source with terrain coloring and low-angle lighting
 const char* fragmentShaderSource = R"(
 #version 330 core
 in float elevation;
 in vec3 FragPos;
+in vec3 WorldPos;
 out vec4 FragColor;
 
 uniform float minElevation;
 uniform float maxElevation;
+uniform vec3 lightDirection;  // Light direction (will be low angle)
 
 vec3 getTerrainColor(float normalized) {
     // Terrain colormap: deep blue -> green -> brown -> white
     vec3 colors[5];
-    colors[0] = vec3(0.1, 0.2, 0.5);  // Deep (low elevation)
-    colors[1] = vec3(0.3, 0.5, 0.3);  // Green
-    colors[2] = vec3(0.6, 0.5, 0.3);  // Brown
+    // colors[0] = vec3(0.1, 0.2, 0.5);  // Deep (low elevation)
+    // colors[1] = vec3(0.3, 0.5, 0.3);  // Green
+    // colors[2] = vec3(0.6, 0.5, 0.3);  // Brown
+    // colors[3] = vec3(0.8, 0.8, 0.7);  // Light
+    // colors[4] = vec3(1.0, 1.0, 1.0);  // White (high elevation)
+    colors[0] = vec3(0.8, 0.8, 0.7);  // Light
+    colors[1] = vec3(0.8, 0.8, 0.7);  // Light
+    colors[2] = vec3(0.8, 0.8, 0.7);  // Light
     colors[3] = vec3(0.8, 0.8, 0.7);  // Light
-    colors[4] = vec3(1.0, 1.0, 1.0);  // White (high elevation)
-    
+    colors[4] = vec3(0.8, 0.8, 0.7);  // Light
+
     float scaled = normalized * 4.0;
     int idx = int(floor(scaled));
     idx = clamp(idx, 0, 3);
@@ -146,14 +155,34 @@ void main() {
     float normalized = (elevation - minElevation) / (maxElevation - minElevation);
     normalized = clamp(normalized, 0.0, 1.0);
     
-    vec3 color = getTerrainColor(normalized);
+    vec3 baseColor = getTerrainColor(normalized);
     
-    // Simple lighting
-    vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-    vec3 normal = normalize(cross(dFdx(FragPos), dFdy(FragPos)));
-    float diff = max(dot(normal, lightDir), 0.0) * 0.6 + 0.4;
+    // Calculate surface normal using screen-space derivatives
+    vec3 dFdxPos = dFdx(WorldPos);
+    vec3 dFdyPos = dFdy(WorldPos);
+    vec3 normal = normalize(cross(dFdxPos, dFdyPos));
     
-    FragColor = vec4(color * diff, 1.0);
+    // Low-angle lighting (20 degrees from horizon)
+    vec3 lightDir = normalize(lightDirection);
+    
+    // Diffuse lighting
+    float diff = max(dot(normal, lightDir), 0.0);
+    
+    // Ambient lighting (so shadows aren't completely black)
+    float ambient = 0.25;
+    
+    // Specular highlight (subtle)
+    vec3 viewDir = normalize(-FragPos);  // Assuming camera at origin in view space
+    vec3 halfDir = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(normal, halfDir), 0.0), 32.0) * 0.3;
+    
+    // Combine lighting
+    vec3 lighting = vec3(ambient + diff * 0.75 + spec);
+    
+    // Apply lighting to base color
+    vec3 finalColor = baseColor * lighting;
+    
+    FragColor = vec4(finalColor, 1.0);
 }
 )";
 
@@ -212,7 +241,7 @@ void generateMesh(const std::vector<float>& elevationData, int width, int height
     
     std::cout << "Generating mesh..." << std::endl;
     
-    float scaleZ = 0.001f; // Vertical exaggeration
+    float scaleZ = 0.01f; // Vertical exaggeration
     
     // Generate vertices (position + elevation)
     for (int y = 0; y < height; y++) {
@@ -296,41 +325,42 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             }
         } else if (key == GLFW_KEY_R) {
             // Reset camera
-            camera.position = glm::vec3(512.0f, 512.0f, 500.0f);
-            camera.target = glm::vec3(512.0f, 512.0f, 0.0f);
+            camera.position = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f);
+            camera.target = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f);
             camera.yaw = -90.0f;
             camera.pitch = 20.0f;
             camera.distance = 500.0f;
             camera.fov = 45.0f;
             camera.updateVectors();
             std::cout << "Camera reset" << std::endl;
-        } else if (key == GLFW_KEY_KP_4) {
-            // Numpad 4 - Move west
-            globalXOffset -= 16;
-            needsReload = true;
-            std::cout << "Moving west (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        } else if (key == GLFW_KEY_KP_6) {
-            // Numpad 6 - Move east
-            globalXOffset += 16;
-            needsReload = true;
-            std::cout << "Moving east (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        } else if (key == GLFW_KEY_KP_8) {
-            // Numpad 8 - Move north
-            globalYOffset -= 16;
-            needsReload = true;
-            std::cout << "Moving north (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        } else if (key == GLFW_KEY_KP_2) {
-            // Numpad 2 - Move south
-            globalYOffset += 16;
-            needsReload = true;
-            std::cout << "Moving south (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        } else if (key == GLFW_KEY_KP_5) {
-            // Numpad 5 - Reset to center
-            globalXOffset = 0;
-            globalYOffset = 0;
-            needsReload = true;
-            std::cout << "Reset to center (offset: 0, 0)" << std::endl;
-        }
+        } 
+        // else if (key == GLFW_KEY_KP_4) {
+        //     // Numpad 4 - Move west
+        //     globalXOffset -= 16;
+        //     needsReload = true;
+        //     std::cout << "Moving west (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        // } else if (key == GLFW_KEY_KP_6) {
+        //     // Numpad 6 - Move east
+        //     globalXOffset += 16;
+        //     needsReload = true;
+        //     std::cout << "Moving east (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        // } else if (key == GLFW_KEY_KP_8) {
+        //     // Numpad 8 - Move north
+        //     globalYOffset += 16;
+        //     needsReload = true;
+        //     std::cout << "Moving north (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        // } else if (key == GLFW_KEY_KP_2) {
+        //     // Numpad 2 - Move south
+        //     globalYOffset -= 16;
+        //     needsReload = true;
+        //     std::cout << "Moving south (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        // } else if (key == GLFW_KEY_KP_5) {
+        //     // Numpad 5 - Reset to center
+        //     globalXOffset = 0;
+        //     globalYOffset = 0;
+        //     needsReload = true;
+        //     std::cout << "Reset to center (offset: 0, 0)" << std::endl;
+        // }
     } else if (action == GLFW_RELEASE) {
         keys[key] = false;
     }
@@ -441,6 +471,36 @@ void processInput(GLFWwindow* window) {
         if (keys[GLFW_KEY_D]) camera.target += camera.right * velocity;
         if (keys[GLFW_KEY_Q]) camera.target -= camera.up * velocity;
         if (keys[GLFW_KEY_E]) camera.target += camera.up * velocity;
+
+
+        if (keys[GLFW_KEY_KP_4]) {
+            // Numpad 4 - Move west
+            globalXOffset -= 16;
+            needsReload = true;
+        } 
+        if (keys[GLFW_KEY_KP_6]) {
+            // Numpad 6 - Move east
+            globalXOffset += 16;
+            needsReload = true;
+        } 
+        if (keys[GLFW_KEY_KP_8]) {
+            // Numpad 8 - Move north
+            globalYOffset += 16;
+            needsReload = true;
+        } 
+        if (keys[GLFW_KEY_KP_2]) {
+            // Numpad 2 - Move south
+            globalYOffset -= 16;
+            needsReload = true;
+        } 
+        if (keys[GLFW_KEY_KP_5]) {
+            // Numpad 5 - Reset to center
+            globalXOffset = 0;
+            globalYOffset = 0;
+            needsReload = true;
+        }
+
+
 
         // Arrow keys to adjust distance
         if (keys[GLFW_KEY_UP]) camera.distance -= velocity * 2.0f;
@@ -572,6 +632,16 @@ int main(int argc, char** argv) {
     GLint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
     GLint minElevLoc = glGetUniformLocation(shaderProgram, "minElevation");
     GLint maxElevLoc = glGetUniformLocation(shaderProgram, "maxElevation");
+    GLint lightDirLoc = glGetUniformLocation(shaderProgram, "lightDirection");
+    
+    // Low-angle light source (20 degrees above horizon)
+    // Direction: coming from the side at low angle
+    float lightAngle = 20.0f; // degrees above horizon
+    glm::vec3 lightDirection = glm::normalize(glm::vec3(
+        cos(glm::radians(lightAngle)),  // Horizontal component
+        0.0f,                            // Side direction
+        sin(glm::radians(lightAngle))   // Vertical component (low angle)
+    ));
     
     std::cout << "\n=== Controls ===" << std::endl;
     std::cout << "Camera Modes:" << std::endl;
@@ -660,6 +730,7 @@ int main(int argc, char** argv) {
         glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
         glUniform1f(minElevLoc, minElev);
         glUniform1f(maxElevLoc, maxElev);
+        glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDirection));
         
         // Draw mesh
         glBindVertexArray(VAO);
