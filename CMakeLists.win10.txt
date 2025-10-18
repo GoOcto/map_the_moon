@@ -1,0 +1,44 @@
+cmake_minimum_required(VERSION 3.10)
+project(LunarViewer)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find OpenGL (usually available on Windows)
+find_package(OpenGL REQUIRED)
+
+# Set library paths for Windows
+set(LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)
+
+# GLEW
+set(GLEW_INCLUDE_DIR ${LIBS_DIR}/glew/include)
+set(GLEW_LIBRARY ${LIBS_DIR}/glew/lib/Release/x64/glew32.lib)
+
+# GLFW
+set(GLFW_INCLUDE_DIR ${LIBS_DIR}/glfw/include)
+set(GLFW_LIBRARY ${LIBS_DIR}/glfw/lib/glfw3.lib)
+
+# GLM (header-only)
+set(GLM_INCLUDE_DIR ${LIBS_DIR}/glm/include)
+
+# Add executable
+add_executable(lunar_viewer src/lunar_viewer.cpp)
+
+# Include directories
+target_include_directories(lunar_viewer PRIVATE
+    ${GLEW_INCLUDE_DIR}
+    ${GLFW_INCLUDE_DIR}
+    ${GLM_INCLUDE_DIR}
+)
+
+# Link libraries
+target_link_libraries(lunar_viewer
+    OpenGL::GL
+    ${GLEW_LIBRARY}
+    ${GLFW_LIBRARY}
+)
+
+# Set output directory
+set_target_properties(lunar_viewer PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)

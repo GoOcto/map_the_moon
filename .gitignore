@@ -3,3 +3,13 @@
 # CMAKE build files
 src/*.[oa]
 lunar_viewer
+
+# VisualStudio dependencies
+libs/
+
+# VisualStudio build files
+out/
+build/
+
+# custom
+CMakeLists.txt        # user can decide if they want to use .win10.txt or .linux.txt versions
