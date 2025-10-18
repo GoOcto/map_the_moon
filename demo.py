@@ -62,7 +62,7 @@ def create_mesh(elevation_data, scale_z=0.001):
 
 
 def main():
-    filepath = ".data/SLDEM2015_512_00N_30N_000_045_FLOAT.IMG"
+    filepath = ".data/dem/SLDEM2015_512_00N_30N_000_045_FLOAT.IMG"
     
     if not os.path.exists(filepath):
         print(f"Error: File not found: {filepath}")
