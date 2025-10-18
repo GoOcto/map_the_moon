@@ -19,7 +19,7 @@
 // Constants
 const int WINDOW_WIDTH = 1920;
 const int WINDOW_HEIGHT = 1080;
-const int MESH_SIZE = 512;
+const int MESH_SIZE = 1024;
 const int FULL_WIDTH = 23040;
 const int FULL_HEIGHT = 15360;
 
@@ -41,18 +41,24 @@ struct Camera {
     float distance;
     bool orbitMode;
 
-    Camera() : position(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f),
-               front(0.0f, 0.0f, -1.0f),
-               up(0.0f, 1.0f, 0.0f),
+    Camera() : 
                worldUp(0.0f, 0.0f, 1.0f),
-               yaw(-90.0f),
-               pitch(20.0f),
                speed(50.0f),
                sensitivity(0.15f),
                fov(45.0f),
-               target(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f),
-               distance(500.0f),
                orbitMode(true) {
+        reset();
+        updateVectors();
+    }
+
+    void reset() {
+        position = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f);
+        front = glm::vec3(0.0f, 0.0f, -1.0f);
+        up = glm::vec3(0.0f, 1.0f, 0.0f);
+        target = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f);
+        yaw = -90.0f;
+        pitch = 50.0f;
+        distance = 500.0f;
         updateVectors();
     }
     
@@ -94,6 +100,17 @@ bool keys[1024] = {false};
 bool needsReload = false;
 int globalXOffset = 0;
 int globalYOffset = 0;
+
+// Fullscreen state
+bool isFullscreen = false;
+int windowedPosX = 100;
+int windowedPosY = 100;
+int windowedWidth = WINDOW_WIDTH;
+int windowedHeight = WINDOW_HEIGHT;
+
+// Current framebuffer dimensions
+int currentWidth = WINDOW_WIDTH;
+int currentHeight = WINDOW_HEIGHT;
 
 // Vertex shader source
 const char* vertexShaderSource = R"(
@@ -300,12 +317,46 @@ GLuint compileShader(GLenum type, const char* source) {
 }
 
 // Keyboard callback
+// Toggle fullscreen function
+void toggleFullscreen(GLFWwindow* window) {
+    if (isFullscreen) {
+        // Switch to windowed mode
+        glfwSetWindowMonitor(window, nullptr, 
+                           windowedPosX, windowedPosY,
+                           windowedWidth, windowedHeight,
+                           GLFW_DONT_CARE);
+        isFullscreen = false;
+        std::cout << "Switched to windowed mode (" << windowedWidth << "x" << windowedHeight << ")" << std::endl;
+    } else {
+        // Save current windowed position and size
+        glfwGetWindowPos(window, &windowedPosX, &windowedPosY);
+        glfwGetWindowSize(window, &windowedWidth, &windowedHeight);
+        
+        // Switch to fullscreen on current monitor
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+        
+        glfwSetWindowMonitor(window, monitor,
+                           0, 0,
+                           mode->width, mode->height,
+                           mode->refreshRate);
+        isFullscreen = true;
+        std::cout << "Switched to fullscreen mode (" << mode->width << "x" << mode->height << " @ " << mode->refreshRate << "Hz)" << std::endl;
+    }
+}
+
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
         keys[key] = true;
         
         if (key == GLFW_KEY_ESCAPE) {
             glfwSetWindowShouldClose(window, true);
+        } else if (key == GLFW_KEY_F11) {
+            // F11 toggles fullscreen
+            toggleFullscreen(window);
+        } else if (key == GLFW_KEY_ENTER && (mods & GLFW_MOD_CONTROL)) {
+            // Ctrl+Enter toggles fullscreen
+            toggleFullscreen(window);
         } else if (key == GLFW_KEY_TAB) {
             wireframeMode = !wireframeMode;
             glPolygonMode(GL_FRONT_AND_BACK, wireframeMode ? GL_LINE : GL_FILL);
@@ -325,42 +376,16 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             }
         } else if (key == GLFW_KEY_R) {
             // Reset camera
-            camera.position = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f);
-            camera.target = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f);
-            camera.yaw = -90.0f;
-            camera.pitch = 20.0f;
-            camera.distance = 500.0f;
-            camera.fov = 45.0f;
+            camera.reset();
+            // camera.position = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f);
+            // camera.target = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f);
+            // camera.yaw = -90.0f;
+            // camera.pitch = 20.0f;
+            // camera.distance = 500.0f;
+            // camera.fov = 45.0f;
             camera.updateVectors();
             std::cout << "Camera reset" << std::endl;
         } 
-        // else if (key == GLFW_KEY_KP_4) {
-        //     // Numpad 4 - Move west
-        //     globalXOffset -= 16;
-        //     needsReload = true;
-        //     std::cout << "Moving west (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        // } else if (key == GLFW_KEY_KP_6) {
-        //     // Numpad 6 - Move east
-        //     globalXOffset += 16;
-        //     needsReload = true;
-        //     std::cout << "Moving east (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        // } else if (key == GLFW_KEY_KP_8) {
-        //     // Numpad 8 - Move north
-        //     globalYOffset += 16;
-        //     needsReload = true;
-        //     std::cout << "Moving north (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        // } else if (key == GLFW_KEY_KP_2) {
-        //     // Numpad 2 - Move south
-        //     globalYOffset -= 16;
-        //     needsReload = true;
-        //     std::cout << "Moving south (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
-        // } else if (key == GLFW_KEY_KP_5) {
-        //     // Numpad 5 - Reset to center
-        //     globalXOffset = 0;
-        //     globalYOffset = 0;
-        //     needsReload = true;
-        //     std::cout << "Reset to center (offset: 0, 0)" << std::endl;
-        // }
     } else if (action == GLFW_RELEASE) {
         keys[key] = false;
     }
@@ -382,16 +407,16 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 // Mouse callback
 void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     if (firstMouse) {
-        lastX = xpos;
-        lastY = ypos;
+        lastX = static_cast<float>(xpos);
+        lastY = static_cast<float>(ypos);
         firstMouse = false;
         return;
     }
     
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // Reversed (Y grows downward)
-    lastX = xpos;
-    lastY = ypos;
+    float xoffset = static_cast<float>(xpos) - lastX;
+    float yoffset = lastY - static_cast<float>(ypos); // Reversed (Y grows downward)
+    lastX = static_cast<float>(xpos);
+    lastY = static_cast<float>(ypos);
     
     if (camera.orbitMode) {
         // Orbit mode - only rotate when left mouse is pressed
@@ -460,6 +485,13 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     }
 }
 
+// Framebuffer size callback to handle window resizing
+void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
+    currentWidth = width;
+    currentHeight = height;
+    glViewport(0, 0, width, height);
+}
+
 // Process continuous input
 void processInput(GLFWwindow* window) {
     float velocity = camera.speed * deltaTime;
@@ -511,7 +543,7 @@ void processInput(GLFWwindow* window) {
         camera.updateVectors();
     } else {
         // FPS mode - WASD moves camera position
-        float scale = 0.01;
+        float scale = 0.1f;
         if (keys[GLFW_KEY_W]) camera.position += camera.front * velocity * scale;
         if (keys[GLFW_KEY_S]) camera.position -= camera.front * velocity * scale;
         if (keys[GLFW_KEY_A]) camera.position -= camera.right * velocity * scale;
@@ -558,6 +590,10 @@ int main(int argc, char** argv) {
     glfwSetCursorPosCallback(window, mouseCallback);
     glfwSetScrollCallback(window, scrollCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
+    glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+    
+    // Get actual framebuffer size (may differ from window size on high-DPI displays)
+    glfwGetFramebufferSize(window, &currentWidth, &currentHeight);
     
     // Start in orbit mode with normal cursor
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -569,7 +605,7 @@ int main(int argc, char** argv) {
         return -1;
     }
     
-    glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+    glViewport(0, 0, currentWidth, currentHeight);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_MULTISAMPLE);
     
@@ -667,12 +703,13 @@ int main(int argc, char** argv) {
     std::cout << "Other:" << std::endl;
     std::cout << "  Shift: Move faster" << std::endl;
     std::cout << "  Tab: Toggle wireframe" << std::endl;
+    std::cout << "  F11 or Ctrl+Enter: Toggle fullscreen" << std::endl;
     std::cout << "  ESC: Quit" << std::endl;
     std::cout << "===============\n" << std::endl;
     
     // Main render loop
     while (!glfwWindowShouldClose(window)) {
-        float currentFrame = glfwGetTime();
+        float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
         
@@ -722,7 +759,7 @@ int main(int argc, char** argv) {
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = glm::lookAt(camera.position, camera.position + camera.front, camera.up);
         glm::mat4 projection = glm::perspective(glm::radians(camera.fov),
-                                               (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT,
+                                               (float)currentWidth / (float)currentHeight,
                                                0.1f, 10000.0f);
         
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
@@ -734,7 +771,7 @@ int main(int argc, char** argv) {
         
         // Draw mesh
         glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
         
         glfwSwapBuffers(window);
         glfwPollEvents();
