@@ -1,0 +1,5 @@
+.*/
+
+# CMAKE build files
+src/*.[oa]
+lunar_viewer
