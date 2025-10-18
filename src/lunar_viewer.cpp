@@ -9,111 +9,36 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <iostream>
-#include <vector>
-#include <fstream>
-#include <cstring>
-#include <cmath>
+#include "application.hpp"
+#include "mesh.hpp"
+#include "shader.hpp"
+#include "terrain_loader.hpp"
+
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <exception>
+#include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
 
-// Constants
-const int WINDOW_WIDTH = 1920;
-const int WINDOW_HEIGHT = 1080;
-const int MESH_SIZE = 1024;
-const int FULL_WIDTH = 23040;
-const int FULL_HEIGHT = 15360;
+namespace {
 
-// Camera state
-struct Camera {
-    glm::vec3 position;
-    glm::vec3 front;
-    glm::vec3 up;
-    glm::vec3 right;
-    glm::vec3 worldUp;
-    float yaw;
-    float pitch;
-    float speed;
-    float sensitivity;
-    float fov;
-    
-    // Orbit mode
-    glm::vec3 target;
-    float distance;
-    bool orbitMode;
+constexpr float kMinDistance = 10.0f;
+constexpr float kMaxDistance = 2000.0f;
+constexpr float kFpsMoveScale = 0.1f;
+constexpr float kScrollZoomFactor = 20.0f;
+constexpr float kScrollFovStep = 2.0f;
+constexpr float kOrbitPanSpeed = 0.5f;
+constexpr float kShiftSpeed = 150.0f;
+constexpr float kNormalSpeed = 50.0f;
+constexpr float kLightAngleDegrees = 20.0f;
+constexpr float kColorMin = -5000.0f;
+constexpr float kColorMax = 5000.0f;
+constexpr int kOffsetStep = 16;
 
-    Camera() : 
-               worldUp(0.0f, 0.0f, 1.0f),
-               speed(50.0f),
-               sensitivity(0.15f),
-               fov(45.0f),
-               orbitMode(true) {
-        reset();
-        updateVectors();
-    }
-
-    void reset() {
-        position = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f);
-        front = glm::vec3(0.0f, 0.0f, -1.0f);
-        up = glm::vec3(0.0f, 1.0f, 0.0f);
-        target = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f);
-        yaw = -90.0f;
-        pitch = 50.0f;
-        distance = 500.0f;
-        updateVectors();
-    }
-    
-    void updateVectors() {
-        if (orbitMode) {
-            // Orbit camera around target point
-            glm::vec3 newPos;
-            newPos.x = target.x + distance * cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-            newPos.y = target.y + distance * sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-            newPos.z = target.z + distance * sin(glm::radians(pitch));
-            position = newPos;
-            front = glm::normalize(target - position);
-            right = glm::normalize(glm::cross(front, worldUp));
-            up = glm::normalize(glm::cross(right, front));
-        } else {
-            // Free fly camera (FPS mode)
-            glm::vec3 newFront;
-            newFront.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-            newFront.y = sin(glm::radians(pitch));
-            newFront.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-            front = glm::normalize(newFront);
-            right = glm::normalize(glm::cross(front, worldUp));
-            up = glm::normalize(glm::cross(right, front));
-        }
-    }
-};
-
-Camera camera;
-bool firstMouse = true;
-bool leftMousePressed = false;
-bool rightMousePressed = false;
-bool middleMousePressed = false;
-float lastX = WINDOW_WIDTH / 2.0f;
-float lastY = WINDOW_HEIGHT / 2.0f;
-float deltaTime = 0.0f;
-float lastFrame = 0.0f;
-bool wireframeMode = false;
-bool keys[1024] = {false};
-bool needsReload = false;
-int globalXOffset = 0;
-int globalYOffset = 0;
-
-// Fullscreen state
-bool isFullscreen = false;
-int windowedPosX = 100;
-int windowedPosY = 100;
-int windowedWidth = WINDOW_WIDTH;
-int windowedHeight = WINDOW_HEIGHT;
-
-// Current framebuffer dimensions
-int currentWidth = WINDOW_WIDTH;
-int currentHeight = WINDOW_HEIGHT;
-
-// Vertex shader source
-const char* vertexShaderSource = R"(
+const char* kVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in float aElevation;
@@ -134,8 +59,7 @@ void main() {
 }
 )";
 
-// Fragment shader source with terrain coloring and low-angle lighting
-const char* fragmentShaderSource = R"(
+const char* kFragmentShaderSource = R"(
 #version 330 core
 in float elevation;
 in vec3 FragPos;
@@ -144,10 +68,9 @@ out vec4 FragColor;
 
 uniform float minElevation;
 uniform float maxElevation;
-uniform vec3 lightDirection;  // Light direction (will be low angle)
+uniform vec3 lightDirection;
 
 vec3 getTerrainColor(float normalized) {
-    // Terrain colormap: deep blue -> green -> brown -> white
     vec3 colors[5];
     colors[0] = vec3(0.1, 0.2, 0.5);  // Deep (low elevation)
     colors[1] = vec3(0.3, 0.5, 0.3);  // Green
@@ -162,641 +85,277 @@ vec3 getTerrainColor(float normalized) {
     idx = clamp(idx, 0, 3);
     float t = scaled - float(idx);
 
-    vec3 mix = mix(colors[idx], colors[idx + 1], t)*0.7 + white*0.3;
-    return mix;
+    vec3 mixColor = mix(colors[idx], colors[idx + 1], t) * 0.7 + white * 0.3;
+    return mixColor;
 }
 
 void main() {
     float normalized = (elevation - minElevation) / (maxElevation - minElevation);
     normalized = clamp(normalized, 0.0, 1.0);
-    
+
     vec3 baseColor = getTerrainColor(normalized);
-    
-    // Calculate surface normal using screen-space derivatives
+
     vec3 dFdxPos = dFdx(WorldPos);
     vec3 dFdyPos = dFdy(WorldPos);
     vec3 normal = normalize(cross(dFdxPos, dFdyPos));
-    
-    // Low-angle lighting (20 degrees from horizon)
+
     vec3 lightDir = normalize(lightDirection);
-    
-    // Diffuse lighting
     float diff = max(dot(normal, lightDir), 0.0);
-    
-    // Ambient lighting (so shadows aren't completely black)
+
     float ambient = 0.25;
-    
-    // Specular highlight (subtle)
-    vec3 viewDir = normalize(-FragPos);  // Assuming camera at origin in view space
+
+    vec3 viewDir = normalize(-FragPos);
     vec3 halfDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(normal, halfDir), 0.0), 32.0) * 0.3;
-    
-    // Combine lighting
+
     vec3 lighting = vec3(ambient + diff * 0.75 + spec);
-    
-    // Apply lighting to base color
     vec3 finalColor = baseColor * lighting;
-    
+
     FragColor = vec4(finalColor, 1.0);
 }
 )";
 
-// Load lunar elevation data
-std::vector<float> loadLunarData(const char* filepath, int& outWidth, int& outHeight, int xoffset=0, int yoffset=0) {
-    std::cout << "Loading lunar data from: " << filepath << std::endl;
-    
-    std::ifstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open file: " << filepath << std::endl;
-        return {};
-    }
-    
-    // Load center region
-    int centerX = FULL_WIDTH / 2 + xoffset;
-    int centerY = FULL_HEIGHT / 2 + yoffset;
-    int startX = centerX - MESH_SIZE / 2;
-    int startY = centerY - MESH_SIZE / 2;
-    
-    std::vector<float> data(MESH_SIZE * MESH_SIZE);
-    
-    for (int y = 0; y < MESH_SIZE; y++) {
-        // Seek to correct row
-        size_t offset = ((startY + y) * FULL_WIDTH + startX) * sizeof(float);
-        file.seekg(offset);
-        
-        // Read row
-        file.read(reinterpret_cast<char*>(&data[y * MESH_SIZE]), MESH_SIZE * sizeof(float));
-    }
-    
-    file.close();
-    
-    // Convert from km to meters
-    for (float& val : data) {
-        val *= 1000.0f;
-    }
-    
-    outWidth = MESH_SIZE;
-    outHeight = MESH_SIZE;
-    
-    // Find min/max
-    float minElev = *std::min_element(data.begin(), data.end());
-    float maxElev = *std::max_element(data.begin(), data.end());
-    std::cout << "Elevation range: " << minElev << " to " << maxElev << " meters" << std::endl;
-    
-    return data;
-}
+} // namespace
 
-// Generate mesh vertices and indices
-void generateMesh(const std::vector<float>& elevationData, int width, int height,
-                  std::vector<float>& vertices, std::vector<unsigned int>& indices) {
-    
-    std::cout << "Generating mesh..." << std::endl;
-    
-    float scaleZ = 0.01f; // will depend on the distance between vertices
-    
-    // Generate vertices (position + elevation)
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            float elevation = elevationData[y * width + x];
-            
-            // Position
-            vertices.push_back(static_cast<float>(x));
-            vertices.push_back(static_cast<float>(y));
-            vertices.push_back(elevation * scaleZ);
-            
-            // Elevation (for coloring)
-            vertices.push_back(elevation);
-        }
+class LunarViewerApp : public Application {
+public:
+    LunarViewerApp(const char* windowTitle, std::string dataPath)
+        : Application(windowTitle), dataPath_(std::move(dataPath)) {}
+
+protected:
+    void setup() override {
+        setupCallbacks();
+
+        shader = std::make_unique<ShaderProgram>(kVertexShaderSource, kFragmentShaderSource);
+
+        loadTerrain();
+        mesh->uploadData();
+        mesh->setupVertexAttributes({3, 1});
+
+        shader->use();
+        modelLoc_ = shader->getUniformLocation("model");
+        viewLoc_ = shader->getUniformLocation("view");
+        projectionLoc_ = shader->getUniformLocation("projection");
+        minElevLoc_ = shader->getUniformLocation("minElevation");
+        maxElevLoc_ = shader->getUniformLocation("maxElevation");
+        lightDirLoc_ = shader->getUniformLocation("lightDirection");
+
+        lightDirection_ = glm::normalize(glm::vec3(
+            std::cos(glm::radians(kLightAngleDegrees)),
+            0.0f,
+            std::sin(glm::radians(kLightAngleDegrees))));
+
+        centerCamera();
     }
-    
-    // Generate indices for triangle strip
-    for (int y = 0; y < height - 1; y++) {
-        for (int x = 0; x < width - 1; x++) {
-            int topLeft = y * width + x;
-            int topRight = topLeft + 1;
-            int bottomLeft = (y + 1) * width + x;
-            int bottomRight = bottomLeft + 1;
-            
-            // First triangle
-            indices.push_back(topLeft);
-            indices.push_back(bottomLeft);
-            indices.push_back(topRight);
-            
-            // Second triangle
-            indices.push_back(topRight);
-            indices.push_back(bottomLeft);
-            indices.push_back(bottomRight);
-        }
-    }
-    
-    std::cout << "Generated " << vertices.size() / 4 << " vertices and " 
-              << indices.size() / 3 << " triangles" << std::endl;
-}
 
-// Update only the elevation values in existing vertices
-void updateMeshElevations(const std::vector<float>& elevationData, 
-                          int width, int height,
-                          std::vector<float>& vertices) {
+    void update(float deltaTime) override {
+        const float velocity = camera->speed * deltaTime;
 
-    // Vertical exaggeration (vertical units are in metres, horizontal units are 1.0 per data point--roughly 60m at the equator)                            
-    // actually: 0.0592252938 <km/pix>
-    float scaleZ = 1/59.2252938f; // to convert km/pix to vertical exaggeration in metres
+        if (camera->orbitMode) {
+            if (input->isKeyPressed(GLFW_KEY_W)) camera->target += camera->front * velocity;
+            if (input->isKeyPressed(GLFW_KEY_S)) camera->target -= camera->front * velocity;
+            if (input->isKeyPressed(GLFW_KEY_A)) camera->target -= camera->right * velocity;
+            if (input->isKeyPressed(GLFW_KEY_D)) camera->target += camera->right * velocity;
+            if (input->isKeyPressed(GLFW_KEY_Q)) camera->target -= camera->up * velocity;
+            if (input->isKeyPressed(GLFW_KEY_E)) camera->target += camera->up * velocity;
 
-    // Update only Z position and elevation values for each vertex
-    // Vertex format: [x, y, z, elevation] - 4 floats per vertex
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int vertexIndex = (y * width + x) * 4;
-            float elevation = elevationData[y * width + x];
-            
-            // Update Z position (index 2)
-            vertices[vertexIndex + 2] = elevation * scaleZ;
-            
-            // Update elevation attribute (index 3)
-            vertices[vertexIndex + 3] = elevation;
-        }
-    }
-}
-
-// Compile shader
-GLuint compileShader(GLenum type, const char* source) {
-    GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &source, nullptr);
-    glCompileShader(shader);
-    
-    GLint success;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        char infoLog[512];
-        glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-        std::cerr << "Shader compilation failed:\n" << infoLog << std::endl;
-    }
-    
-    return shader;
-}
-
-// Keyboard callback
-// Toggle fullscreen function
-void toggleFullscreen(GLFWwindow* window) {
-    if (isFullscreen) {
-        // Switch to windowed mode
-        glfwSetWindowMonitor(window, nullptr, 
-                           windowedPosX, windowedPosY,
-                           windowedWidth, windowedHeight,
-                           GLFW_DONT_CARE);
-        isFullscreen = false;
-        std::cout << "Switched to windowed mode (" << windowedWidth << "x" << windowedHeight << ")" << std::endl;
-    } else {
-        // Save current windowed position and size
-        glfwGetWindowPos(window, &windowedPosX, &windowedPosY);
-        glfwGetWindowSize(window, &windowedWidth, &windowedHeight);
-        
-        // Switch to fullscreen on current monitor
-        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-        
-        glfwSetWindowMonitor(window, monitor,
-                           0, 0,
-                           mode->width, mode->height,
-                           mode->refreshRate);
-        isFullscreen = true;
-        std::cout << "Switched to fullscreen mode (" << mode->width << "x" << mode->height << " @ " << mode->refreshRate << "Hz)" << std::endl;
-    }
-}
-
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    if (action == GLFW_PRESS) {
-        keys[key] = true;
-        
-        if (key == GLFW_KEY_ESCAPE) {
-            glfwSetWindowShouldClose(window, true);
-        } else if (key == GLFW_KEY_F11) {
-            // F11 toggles fullscreen
-            toggleFullscreen(window);
-        } else if (key == GLFW_KEY_ENTER && (mods & GLFW_MOD_CONTROL)) {
-            // Ctrl+Enter toggles fullscreen
-            toggleFullscreen(window);
-        } else if (key == GLFW_KEY_TAB) {
-            wireframeMode = !wireframeMode;
-            glPolygonMode(GL_FRONT_AND_BACK, wireframeMode ? GL_LINE : GL_FILL);
-        } else if (key == GLFW_KEY_SPACE) {
-            // Toggle between orbit and free fly mode
-            camera.orbitMode = !camera.orbitMode;
-            if (camera.orbitMode) {
-                // Switching to orbit mode - set target to current look point
-                camera.target = camera.position + camera.front * 100.0f;
-                camera.distance = glm::length(camera.target - camera.position);
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-                std::cout << "Orbit mode enabled (mouse to rotate)" << std::endl;
-            } else {
-                // Switching to FPS mode
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-                std::cout << "FPS mode enabled (WASD to move, mouse to look)" << std::endl;
+            if (input->isKeyPressed(GLFW_KEY_KP_4)) {
+                globalXOffset_ -= kOffsetStep;
+                needsReload_ = true;
             }
-        } else if (key == GLFW_KEY_R) {
-            // Reset camera
-            camera.reset();
-            // camera.position = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f);
-            // camera.target = glm::vec3(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f);
-            // camera.yaw = -90.0f;
-            // camera.pitch = 20.0f;
-            // camera.distance = 500.0f;
-            // camera.fov = 45.0f;
-            camera.updateVectors();
-            std::cout << "Camera reset" << std::endl;
-        } 
-    } else if (action == GLFW_RELEASE) {
-        keys[key] = false;
-    }
-}
+            if (input->isKeyPressed(GLFW_KEY_KP_6)) {
+                globalXOffset_ += kOffsetStep;  
+                needsReload_ = true;
+            }
+            if (input->isKeyPressed(GLFW_KEY_KP_8)) {
+                globalYOffset_ += kOffsetStep;
+                needsReload_ = true;
+            }
+            if (input->isKeyPressed(GLFW_KEY_KP_2)) {
+                globalYOffset_ -= kOffsetStep;
+                needsReload_ = true;
+            }
 
-// Mouse button callback
-void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-    if (action == GLFW_PRESS) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT) leftMousePressed = true;
-        if (button == GLFW_MOUSE_BUTTON_RIGHT) rightMousePressed = true;
-        if (button == GLFW_MOUSE_BUTTON_MIDDLE) middleMousePressed = true;
-    } else if (action == GLFW_RELEASE) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT) leftMousePressed = false;
-        if (button == GLFW_MOUSE_BUTTON_RIGHT) rightMousePressed = false;
-        if (button == GLFW_MOUSE_BUTTON_MIDDLE) middleMousePressed = false;
-    }
-}
+            if (input->isKeyPressed(GLFW_KEY_UP)) camera->distance -= velocity * 2.0f;
+            if (input->isKeyPressed(GLFW_KEY_DOWN)) camera->distance += velocity * 2.0f;
+            camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
 
-// Mouse callback
-void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
-    if (firstMouse) {
-        lastX = static_cast<float>(xpos);
-        lastY = static_cast<float>(ypos);
-        firstMouse = false;
-        return;
-    }
-    
-    float xoffset = static_cast<float>(xpos) - lastX;
-    float yoffset = lastY - static_cast<float>(ypos); // Reversed (Y grows downward)
-    lastX = static_cast<float>(xpos);
-    lastY = static_cast<float>(ypos);
-    
-    if (camera.orbitMode) {
-        // Orbit mode - only rotate when left mouse is pressed
-        if (leftMousePressed) {
-            xoffset *= camera.sensitivity;
-            yoffset *= camera.sensitivity;
-            
-            camera.yaw -= xoffset;
-            camera.pitch -= yoffset;
-            
-            // Constrain pitch to avoid gimbal lock
-            if (camera.pitch > 89.0f) camera.pitch = 89.0f;
-            if (camera.pitch < -89.0f) camera.pitch = -89.0f;
-            
-            camera.updateVectors();
-        }
-        
-        // Pan with right mouse button
-        if (rightMousePressed) {
-            float panSpeed = 0.5f;
-            glm::vec3 right = glm::normalize(glm::cross(camera.front, camera.worldUp));
-            glm::vec3 up = glm::normalize(glm::cross(right, camera.front));
-            camera.target -= right * xoffset * panSpeed;
-            camera.target -= up * yoffset * panSpeed;
-            camera.updateVectors();
-        }
-        
-        // Pan with middle mouse button (alternative)
-        if (middleMousePressed) {
-            float panSpeed = 0.5f;
-            glm::vec3 right = glm::normalize(glm::cross(camera.front, camera.worldUp));
-            glm::vec3 up = glm::normalize(glm::cross(right, camera.front));
-            camera.target -= right * xoffset * panSpeed;
-            camera.target -= up * yoffset * panSpeed;
-            camera.updateVectors();
-        }
-    } else {
-        // FPS mode - always rotate (cursor is disabled)
-        xoffset *= camera.sensitivity;
-        yoffset *= camera.sensitivity;
-        
-        camera.yaw += xoffset;
-        camera.pitch += yoffset;
-        
-        // Constrain pitch
-        if (camera.pitch > 89.0f) camera.pitch = 89.0f;
-        if (camera.pitch < -89.0f) camera.pitch = -89.0f;
-        
-        camera.updateVectors();
-    }
-}
-
-// Scroll callback for FOV/zoom
-void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
-    if (camera.orbitMode) {
-        // Zoom by changing distance to target
-        camera.distance -= static_cast<float>(yoffset) * 20.0f;
-        if (camera.distance < 10.0f) camera.distance = 10.0f;
-        if (camera.distance > 2000.0f) camera.distance = 2000.0f;
-        camera.updateVectors();
-    } else {
-        // Change FOV in FPS mode
-        camera.fov -= static_cast<float>(yoffset) * 2.0f;
-        if (camera.fov < 1.0f) camera.fov = 1.0f;
-        if (camera.fov > 90.0f) camera.fov = 90.0f;
-    }
-}
-
-// Framebuffer size callback to handle window resizing
-void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
-    currentWidth = width;
-    currentHeight = height;
-    glViewport(0, 0, width, height);
-}
-
-// Process continuous input
-void processInput(GLFWwindow* window) {
-    float velocity = camera.speed * deltaTime;
-    
-    if (camera.orbitMode) {
-        if (keys[GLFW_KEY_W]) camera.target += camera.front * velocity;
-        if (keys[GLFW_KEY_S]) camera.target -= camera.front * velocity;
-        if (keys[GLFW_KEY_A]) camera.target -= camera.right * velocity;
-        if (keys[GLFW_KEY_D]) camera.target += camera.right * velocity;
-        if (keys[GLFW_KEY_Q]) camera.target -= camera.up * velocity;
-        if (keys[GLFW_KEY_E]) camera.target += camera.up * velocity;
-
-
-        if (keys[GLFW_KEY_KP_4]) {
-            // Numpad 4 - Move west
-            globalXOffset -= 16;
-            needsReload = true;
-        } 
-        if (keys[GLFW_KEY_KP_6]) {
-            // Numpad 6 - Move east
-            globalXOffset += 16;
-            needsReload = true;
-        } 
-        if (keys[GLFW_KEY_KP_8]) {
-            // Numpad 8 - Move north
-            globalYOffset += 16;
-            needsReload = true;
-        } 
-        if (keys[GLFW_KEY_KP_2]) {
-            // Numpad 2 - Move south
-            globalYOffset -= 16;
-            needsReload = true;
-        } 
-        if (keys[GLFW_KEY_KP_5]) {
-            // Numpad 5 - Reset to center
-            globalXOffset = 0;
-            globalYOffset = 0;
-            needsReload = true;
+            camera->updateVectors();
+        } else {
+            if (input->isKeyPressed(GLFW_KEY_W)) camera->position += camera->front * velocity * kFpsMoveScale;
+            if (input->isKeyPressed(GLFW_KEY_S)) camera->position -= camera->front * velocity * kFpsMoveScale;
+            if (input->isKeyPressed(GLFW_KEY_A)) camera->position -= camera->right * velocity * kFpsMoveScale;
+            if (input->isKeyPressed(GLFW_KEY_D)) camera->position += camera->right * velocity * kFpsMoveScale;
+            if (input->isKeyPressed(GLFW_KEY_Q)) camera->position -= camera->up * velocity * kFpsMoveScale;
+            if (input->isKeyPressed(GLFW_KEY_E)) camera->position += camera->up * velocity * kFpsMoveScale;
         }
 
+        camera->speed = input->isKeyPressed(GLFW_KEY_LEFT_SHIFT) ? kShiftSpeed : kNormalSpeed;
 
+        if (needsReload_) {
+            reloadTerrain();
+        }
+    }
 
-        // Arrow keys to adjust distance
-        if (keys[GLFW_KEY_UP]) camera.distance -= velocity * 2.0f;
-        if (keys[GLFW_KEY_DOWN]) camera.distance += velocity * 2.0f;
-        if (camera.distance < 10.0f) camera.distance = 10.0f;
-        if (camera.distance > 2000.0f) camera.distance = 2000.0f;
-        
-        camera.updateVectors();
-    } else {
-        // FPS mode - WASD moves camera position
-        float scale = 0.1f;
-        if (keys[GLFW_KEY_W]) camera.position += camera.front * velocity * scale;
-        if (keys[GLFW_KEY_S]) camera.position -= camera.front * velocity * scale;
-        if (keys[GLFW_KEY_A]) camera.position -= camera.right * velocity * scale;
-        if (keys[GLFW_KEY_D]) camera.position += camera.right * velocity * scale;
-        if (keys[GLFW_KEY_Q]) camera.position -= camera.up * velocity * scale;
-        if (keys[GLFW_KEY_E]) camera.position += camera.up * velocity * scale;
+    void render() override {
+        shader->use();
+
+        const glm::mat4 model = glm::mat4(1.0f);
+        const glm::mat4 view = getViewMatrix();
+        const glm::mat4 projection = getProjectionMatrix();
+
+        glUniformMatrix4fv(modelLoc_, 1, GL_FALSE, glm::value_ptr(model));
+        glUniformMatrix4fv(viewLoc_, 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(projectionLoc_, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniform1f(minElevLoc_, kColorMin);
+        glUniform1f(maxElevLoc_, kColorMax);
+        glUniform3fv(lightDirLoc_, 1, glm::value_ptr(lightDirection_));
+
+        mesh->draw();
     }
-    
-    // Shift to speed up
-    if (keys[GLFW_KEY_LEFT_SHIFT]) {
-        camera.speed = 150.0f;
-    } else {
-        camera.speed = 50.0f;
+
+    void keyCallback(GLFWwindow* w, int key, int scancode, int action, int mods) override {
+        Application::keyCallback(w, key, scancode, action, mods);
+
+        if (action == GLFW_PRESS) {
+            if (key == GLFW_KEY_R) {
+                centerCamera();
+            }
+        }
+
+        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+            switch (key) {
+                case GLFW_KEY_KP_5:
+                    globalXOffset_ = 0;
+                    globalYOffset_ = 0;
+                    needsReload_ = true;
+                    break;
+                default:
+                    break;
+            }
+        }
     }
-}
+
+    void mouseCallback(GLFWwindow* w, double xpos, double ypos) override {
+        const glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
+
+        if (camera->orbitMode) {
+            if (input->leftMousePressed) {
+                camera->yaw -= mouseDelta.x * camera->sensitivity;
+                camera->pitch -= mouseDelta.y * camera->sensitivity;
+                camera->constrainPitch();
+                camera->updateVectors();
+            }
+
+            if (input->rightMousePressed || input->middleMousePressed) {
+                glm::vec3 right = glm::normalize(glm::cross(camera->front, camera->worldUp));
+                glm::vec3 up = glm::normalize(glm::cross(right, camera->front));
+                camera->target -= right * mouseDelta.x * kOrbitPanSpeed;
+                camera->target -= up * mouseDelta.y * kOrbitPanSpeed;
+                camera->updateVectors();
+            }
+        } else {
+            camera->yaw += mouseDelta.x * camera->sensitivity;
+            camera->pitch += mouseDelta.y * camera->sensitivity;
+            camera->constrainPitch();
+            camera->updateVectors();
+        }
+    }
+
+    void scrollCallback(GLFWwindow* w, double xoffset, double yoffset) override {
+        if (camera->orbitMode) {
+            camera->distance -= static_cast<float>(yoffset) * kScrollZoomFactor;
+            camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
+            camera->updateVectors();
+        } else {
+            camera->fov -= static_cast<float>(yoffset) * kScrollFovStep;
+            camera->fov = std::clamp(camera->fov, 1.0f, 90.0f);
+        }
+    }
+
+private:
+    void loadTerrain() {
+        elevationData_ = TerrainLoader::loadLunarData(
+            dataPath_.c_str(), width_, height_, globalXOffset_, globalYOffset_);
+        if (elevationData_.empty()) {
+            throw std::runtime_error("Failed to load terrain data");
+        }
+
+        minElevation_ = *std::min_element(elevationData_.begin(), elevationData_.end());
+        maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
+
+        mesh->vertices.clear();
+        mesh->indices.clear();
+        TerrainLoader::generateMesh(elevationData_, width_, height_, mesh->vertices, mesh->indices);
+
+        std::cout << "Initial elevation range: " << minElevation_ << " to " << maxElevation_ << " meters" << std::endl;
+    }
+
+    void reloadTerrain() {
+        needsReload_ = false;
+
+        std::cout << "Reloading terrain data..." << std::endl;
+        auto newData = TerrainLoader::loadLunarData(
+            dataPath_.c_str(), width_, height_, globalXOffset_, globalYOffset_);
+        if (newData.empty()) {
+            std::cerr << "Failed to reload data, keeping previous terrain" << std::endl;
+            return;
+        }
+
+        elevationData_ = std::move(newData);
+        minElevation_ = *std::min_element(elevationData_.begin(), elevationData_.end());
+        maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
+
+        TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
+        mesh->updateVertexData();
+
+        std::cout << "Reload complete. Elevation range: " << minElevation_ << " to " << maxElevation_ << " meters" << std::endl;
+    }
+
+    void centerCamera() {
+        camera->target = glm::vec3(
+            static_cast<float>(width_) / 2.0f,
+            static_cast<float>(height_) / 2.0f,
+            0.0f);
+        camera->distance = 500.0f;
+        camera->yaw = -90.0f;
+        camera->pitch = 50.0f;
+        camera->updateVectors();
+    }
+
+    std::string dataPath_;
+    std::vector<float> elevationData_;
+    int width_ = TerrainLoader::MESH_SIZE;
+    int height_ = TerrainLoader::MESH_SIZE;
+
+    float minElevation_ = 0.0f;
+    float maxElevation_ = 0.0f;
+
+    bool needsReload_ = false;
+    int globalXOffset_ = 0;
+    int globalYOffset_ = 0;
+
+    glm::vec3 lightDirection_{0.0f};
+
+    GLint modelLoc_ = -1;
+    GLint viewLoc_ = -1;
+    GLint projectionLoc_ = -1;
+    GLint minElevLoc_ = -1;
+    GLint maxElevLoc_ = -1;
+    GLint lightDirLoc_ = -1;
+};
 
 int main(int argc, char** argv) {
-    const char* filepath = ".data/dem/SLDEM2015_512_00N_30N_000_045_FLOAT.IMG";
-    if (argc > 1) {
-        filepath = argv[1];
+    const char* defaultPath = ".data/dem/SLDEM2015_512_00N_30N_000_045_FLOAT.IMG";
+    std::string dataPath = (argc > 1) ? argv[1] : defaultPath;
+
+    try {
+        LunarViewerApp app("Lunar Surface Viewer", std::move(dataPath));
+        app.run();
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << std::endl;
+        return EXIT_FAILURE;
     }
-    
-    // Initialize GLFW
-    if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return -1;
-    }
-    
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_SAMPLES, 4); // 4x MSAA
-    
-    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, 
-                                          "Lunar Surface Viewer", nullptr, nullptr);
-    if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    
-    glfwMakeContextCurrent(window);
-    glfwSetKeyCallback(window, keyCallback);
-    glfwSetCursorPosCallback(window, mouseCallback);
-    glfwSetScrollCallback(window, scrollCallback);
-    glfwSetMouseButtonCallback(window, mouseButtonCallback);
-    glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
-    
-    // Get actual framebuffer size (may differ from window size on high-DPI displays)
-    glfwGetFramebufferSize(window, &currentWidth, &currentHeight);
-    
-    // Start in orbit mode with normal cursor
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-    
-    // Initialize GLEW
-    glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) {
-        std::cerr << "Failed to initialize GLEW" << std::endl;
-        return -1;
-    }
-    
-    glViewport(0, 0, currentWidth, currentHeight);
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_MULTISAMPLE);
-    
-    // Initial data load
-    int width, height;
-    float minElev, maxElev;
-    std::vector<float> elevationData = loadLunarData(filepath, width, height, globalXOffset, globalYOffset);
-    if (elevationData.empty()) {
-        return -1;
-    }
-    
-    minElev = *std::min_element(elevationData.begin(), elevationData.end());
-    maxElev = *std::max_element(elevationData.begin(), elevationData.end());
-    
-    // Generate initial mesh
-    std::vector<float> vertices;
-    std::vector<unsigned int> indices;
-    generateMesh(elevationData, width, height, vertices, indices);
-    
-    // Create VAO, VBO, EBO
-    GLuint VAO, VBO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-    
-    glBindVertexArray(VAO);
-    
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), 
-                 vertices.data(), GL_STATIC_DRAW);
-    
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int),
-                 indices.data(), GL_STATIC_DRAW);
-    
-    // Position attribute
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    
-    // Elevation attribute
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 
-                         (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    
-    // Create shader program
-    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
-    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
-    
-    GLuint shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-    
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-    
-    // Get uniform locations
-    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
-    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
-    GLint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
-    GLint minElevLoc = glGetUniformLocation(shaderProgram, "minElevation");
-    GLint maxElevLoc = glGetUniformLocation(shaderProgram, "maxElevation");
-    GLint lightDirLoc = glGetUniformLocation(shaderProgram, "lightDirection");
-    
-    // Low-angle light source (20 degrees above horizon)
-    // Direction: coming from the side at low angle
-    float lightAngle = 20.0f; // degrees above horizon
-    glm::vec3 lightDirection = glm::normalize(glm::vec3(
-        cos(glm::radians(lightAngle)),  // Horizontal component
-        0.0f,                            // Side direction
-        sin(glm::radians(lightAngle))   // Vertical component (low angle)
-    ));
-    
-    std::cout << "\n=== Controls ===" << std::endl;
-    std::cout << "Camera Modes:" << std::endl;
-    std::cout << "  Space: Toggle Orbit/FPS mode" << std::endl;
-    std::cout << "  R: Reset camera" << std::endl;
-    std::cout << "" << std::endl;
-    std::cout << "Orbit Mode (default):" << std::endl;
-    std::cout << "  Left-click + drag: Rotate around terrain" << std::endl;
-    std::cout << "  Right-click + drag: Pan camera" << std::endl;
-    std::cout << "  Scroll: Zoom in/out" << std::endl;
-    std::cout << "  WASD: Move target point" << std::endl;
-    std::cout << "" << std::endl;
-    std::cout << "FPS Mode:" << std::endl;
-    std::cout << "  Mouse: Look around (cursor hidden)" << std::endl;
-    std::cout << "  WASD: Move forward/back/left/right" << std::endl;
-    std::cout << "  Q/E: Move down/up" << std::endl;
-    std::cout << "" << std::endl;
-    std::cout << "Terrain Navigation:" << std::endl;
-    std::cout << "  Numpad 4/6: Move west/east" << std::endl;
-    std::cout << "  Numpad 8/2: Move north/south" << std::endl;
-    std::cout << "  Numpad 5: Reset to center" << std::endl;
-    std::cout << "" << std::endl;
-    std::cout << "Other:" << std::endl;
-    std::cout << "  Shift: Move faster" << std::endl;
-    std::cout << "  Tab: Toggle wireframe" << std::endl;
-    std::cout << "  F11 or Ctrl+Enter: Toggle fullscreen" << std::endl;
-    std::cout << "  ESC: Quit" << std::endl;
-    std::cout << "===============\n" << std::endl;
-    
-    // Main render loop
-    while (!glfwWindowShouldClose(window)) {
-        float currentFrame = static_cast<float>(glfwGetTime());
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-        
-        processInput(window);
-        
-        // Check if we need to reload data
-        if (needsReload) {
-            std::cout << "Reloading terrain data..." << std::endl;
-            
-            // Load new data
-            elevationData = loadLunarData(filepath, width, height, globalXOffset, globalYOffset);
-            if (elevationData.empty()) {
-                std::cerr << "Failed to reload data, keeping previous terrain" << std::endl;
-                needsReload = false;
-                continue;
-            }
-            
-            minElev = *std::min_element(elevationData.begin(), elevationData.end());
-            maxElev = *std::max_element(elevationData.begin(), elevationData.end());
-            
-            // Update only the elevation values in the existing mesh
-            updateMeshElevations(elevationData, width, height, vertices);
-            
-            // Update only the vertex buffer (indices remain unchanged)
-            glBindBuffer(GL_ARRAY_BUFFER, VBO);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, vertices.size() * sizeof(float), vertices.data());
-            
-            needsReload = false;
-            std::cout << "Terrain reloaded successfully!" << std::endl;
-        }
-        
-        // Clear
-        glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        
-        // Use shader
-        glUseProgram(shaderProgram);
-        
-        // Set uniforms
-        glm::mat4 model = glm::mat4(1.0f);
-        glm::mat4 view = glm::lookAt(camera.position, camera.position + camera.front, camera.up);
-        glm::mat4 projection = glm::perspective(glm::radians(camera.fov),
-                                               (float)currentWidth / (float)currentHeight,
-                                               0.1f, 10000.0f);
-        
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-        // glUniform1f(minElevLoc, minElev);
-        // glUniform1f(maxElevLoc, maxElev);
-        glUniform1f(minElevLoc, -5000.0f); // Fixed range for better color consistency
-        glUniform1f(maxElevLoc, +5000.0f);
-        glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDirection));
-        
-        // Draw mesh
-        glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
-        
-        glfwSwapBuffers(window);
-        glfwPollEvents();
-    }
-    
-    // Cleanup
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
-    glDeleteProgram(shaderProgram);
-    
-    glfwTerminate();
-    return 0;
+
+    return EXIT_SUCCESS;
 }
