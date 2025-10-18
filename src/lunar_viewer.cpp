@@ -154,18 +154,16 @@ vec3 getTerrainColor(float normalized) {
     colors[2] = vec3(0.6, 0.5, 0.3);  // Brown
     colors[3] = vec3(0.8, 0.8, 0.7);  // Light
     colors[4] = vec3(1.0, 1.0, 1.0);  // White (high elevation)
-    // colors[0] = vec3(0.8, 0.8, 0.7);  // Light
-    // colors[1] = vec3(0.8, 0.8, 0.7);  // Light
-    // colors[2] = vec3(0.8, 0.8, 0.7);  // Light
-    // colors[3] = vec3(0.8, 0.8, 0.7);  // Light
-    // colors[4] = vec3(0.8, 0.8, 0.7);  // Light
+
+    vec3 white = vec3(1.0, 1.0, 1.0);
 
     float scaled = normalized * 4.0;
     int idx = int(floor(scaled));
     idx = clamp(idx, 0, 3);
     float t = scaled - float(idx);
-    
-    return mix(colors[idx], colors[idx + 1], t);
+
+    vec3 mix = mix(colors[idx], colors[idx + 1], t)*0.7 + white*0.3;
+    return mix;
 }
 
 void main() {
@@ -254,7 +252,7 @@ void generateMesh(const std::vector<float>& elevationData, int width, int height
     
     std::cout << "Generating mesh..." << std::endl;
     
-    float scaleZ = 0.01f; // Vertical exaggeration
+    float scaleZ = 0.01f; // will depend on the distance between vertices
     
     // Generate vertices (position + elevation)
     for (int y = 0; y < height; y++) {
@@ -296,11 +294,14 @@ void generateMesh(const std::vector<float>& elevationData, int width, int height
 }
 
 // Update only the elevation values in existing vertices
-void updateMeshElevations(const std::vector<float>& elevationData, int width, int height,
+void updateMeshElevations(const std::vector<float>& elevationData, 
+                          int width, int height,
                           std::vector<float>& vertices) {
-    
-    float scaleZ = 0.01f; // Vertical exaggeration
-    
+
+    // Vertical exaggeration (vertical units are in metres, horizontal units are 1.0 per data point--roughly 60m at the equator)                            
+    // actually: 0.0592252938 <km/pix>
+    float scaleZ = 1/59.2252938f; // to convert km/pix to vertical exaggeration in metres
+
     // Update only Z position and elevation values for each vertex
     // Vertex format: [x, y, z, elevation] - 4 floats per vertex
     for (int y = 0; y < height; y++) {
