@@ -19,7 +19,7 @@
 // Constants
 const int WINDOW_WIDTH = 1920;
 const int WINDOW_HEIGHT = 1080;
-const int MESH_SIZE = 1024;
+const int MESH_SIZE = 512;
 const int FULL_WIDTH = 23040;
 const int FULL_HEIGHT = 15360;
 
@@ -40,17 +40,17 @@ struct Camera {
     glm::vec3 target;
     float distance;
     bool orbitMode;
-    
-    Camera() : position(512.0f, 512.0f, 500.0f),
+
+    Camera() : position(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 500.0f),
                front(0.0f, 0.0f, -1.0f),
                up(0.0f, 1.0f, 0.0f),
                worldUp(0.0f, 0.0f, 1.0f),
                yaw(-90.0f),
-               pitch(-20.0f),
+               pitch(20.0f),
                speed(50.0f),
                sensitivity(0.15f),
                fov(45.0f),
-               target(512.0f, 512.0f, 0.0f),
+               target(MESH_SIZE/2.0f, MESH_SIZE/2.0f, 0.0f),
                distance(500.0f),
                orbitMode(true) {
         updateVectors();
@@ -296,7 +296,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             camera.position = glm::vec3(512.0f, 512.0f, 500.0f);
             camera.target = glm::vec3(512.0f, 512.0f, 0.0f);
             camera.yaw = -90.0f;
-            camera.pitch = -20.0f;
+            camera.pitch = 20.0f;
             camera.distance = 500.0f;
             camera.fov = 45.0f;
             camera.updateVectors();
@@ -340,8 +340,8 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
             xoffset *= camera.sensitivity;
             yoffset *= camera.sensitivity;
             
-            camera.yaw += xoffset;
-            camera.pitch += yoffset;
+            camera.yaw -= xoffset;
+            camera.pitch -= yoffset;
             
             // Constrain pitch to avoid gimbal lock
             if (camera.pitch > 89.0f) camera.pitch = 89.0f;
@@ -407,13 +407,19 @@ void processInput(GLFWwindow* window) {
     
     if (camera.orbitMode) {
         // In orbit mode, WASD moves the target point
-        if (keys[GLFW_KEY_W]) camera.target += glm::vec3(0.0f, velocity, 0.0f);
-        if (keys[GLFW_KEY_S]) camera.target -= glm::vec3(0.0f, velocity, 0.0f);
-        if (keys[GLFW_KEY_A]) camera.target -= glm::vec3(velocity, 0.0f, 0.0f);
-        if (keys[GLFW_KEY_D]) camera.target += glm::vec3(velocity, 0.0f, 0.0f);
-        if (keys[GLFW_KEY_Q]) camera.target -= glm::vec3(0.0f, 0.0f, velocity);
-        if (keys[GLFW_KEY_E]) camera.target += glm::vec3(0.0f, 0.0f, velocity);
-        
+        // if (keys[GLFW_KEY_W]) camera.target += glm::vec3(0.0f, velocity, 0.0f);
+        // if (keys[GLFW_KEY_S]) camera.target -= glm::vec3(0.0f, velocity, 0.0f);
+        // if (keys[GLFW_KEY_A]) camera.target -= glm::vec3(velocity, 0.0f, 0.0f);
+        // if (keys[GLFW_KEY_D]) camera.target += glm::vec3(velocity, 0.0f, 0.0f);
+        // if (keys[GLFW_KEY_Q]) camera.target -= glm::vec3(0.0f, 0.0f, velocity);
+        // if (keys[GLFW_KEY_E]) camera.target += glm::vec3(0.0f, 0.0f, velocity);
+        if (keys[GLFW_KEY_W]) camera.target += camera.front * velocity;
+        if (keys[GLFW_KEY_S]) camera.target -= camera.front * velocity;
+        if (keys[GLFW_KEY_A]) camera.target -= camera.right * velocity;
+        if (keys[GLFW_KEY_D]) camera.target += camera.right * velocity;
+        if (keys[GLFW_KEY_Q]) camera.target -= camera.up * velocity;
+        if (keys[GLFW_KEY_E]) camera.target += camera.up * velocity;
+
         // Arrow keys to adjust distance
         if (keys[GLFW_KEY_UP]) camera.distance -= velocity * 2.0f;
         if (keys[GLFW_KEY_DOWN]) camera.distance += velocity * 2.0f;
@@ -423,12 +429,13 @@ void processInput(GLFWwindow* window) {
         camera.updateVectors();
     } else {
         // FPS mode - WASD moves camera position
-        if (keys[GLFW_KEY_W]) camera.position += camera.front * velocity;
-        if (keys[GLFW_KEY_S]) camera.position -= camera.front * velocity;
-        if (keys[GLFW_KEY_A]) camera.position -= camera.right * velocity;
-        if (keys[GLFW_KEY_D]) camera.position += camera.right * velocity;
-        if (keys[GLFW_KEY_Q]) camera.position -= camera.up * velocity;
-        if (keys[GLFW_KEY_E]) camera.position += camera.up * velocity;
+        float scale = 0.01;
+        if (keys[GLFW_KEY_W]) camera.position += camera.front * velocity * scale;
+        if (keys[GLFW_KEY_S]) camera.position -= camera.front * velocity * scale;
+        if (keys[GLFW_KEY_A]) camera.position -= camera.right * velocity * scale;
+        if (keys[GLFW_KEY_D]) camera.position += camera.right * velocity * scale;
+        if (keys[GLFW_KEY_Q]) camera.position -= camera.up * velocity * scale;
+        if (keys[GLFW_KEY_E]) camera.position += camera.up * velocity * scale;
     }
     
     // Shift to speed up
