@@ -91,6 +91,9 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 bool wireframeMode = false;
 bool keys[1024] = {false};
+bool needsReload = false;
+int globalXOffset = 0;
+int globalYOffset = 0;
 
 // Vertex shader source
 const char* vertexShaderSource = R"(
@@ -155,7 +158,7 @@ void main() {
 )";
 
 // Load lunar elevation data
-std::vector<float> loadLunarData(const char* filepath, int& outWidth, int& outHeight) {
+std::vector<float> loadLunarData(const char* filepath, int& outWidth, int& outHeight, int xoffset=0, int yoffset=0) {
     std::cout << "Loading lunar data from: " << filepath << std::endl;
     
     std::ifstream file(filepath, std::ios::binary);
@@ -165,8 +168,8 @@ std::vector<float> loadLunarData(const char* filepath, int& outWidth, int& outHe
     }
     
     // Load center region
-    int centerX = FULL_WIDTH / 2;
-    int centerY = FULL_HEIGHT / 2;
+    int centerX = FULL_WIDTH / 2 + xoffset;
+    int centerY = FULL_HEIGHT / 2 + yoffset;
     int startX = centerX - MESH_SIZE / 2;
     int startY = centerY - MESH_SIZE / 2;
     
@@ -180,7 +183,7 @@ std::vector<float> loadLunarData(const char* filepath, int& outWidth, int& outHe
         // Read row
         file.read(reinterpret_cast<char*>(&data[y * MESH_SIZE]), MESH_SIZE * sizeof(float));
         
-        if (y % 256 == 0) {
+        if (y % 64 == 0) {
             std::cout << "  Loading row " << y << "/" << MESH_SIZE << std::endl;
         }
     }
@@ -301,6 +304,32 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             camera.fov = 45.0f;
             camera.updateVectors();
             std::cout << "Camera reset" << std::endl;
+        } else if (key == GLFW_KEY_KP_4) {
+            // Numpad 4 - Move west
+            globalXOffset -= 16;
+            needsReload = true;
+            std::cout << "Moving west (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        } else if (key == GLFW_KEY_KP_6) {
+            // Numpad 6 - Move east
+            globalXOffset += 16;
+            needsReload = true;
+            std::cout << "Moving east (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        } else if (key == GLFW_KEY_KP_8) {
+            // Numpad 8 - Move north
+            globalYOffset -= 16;
+            needsReload = true;
+            std::cout << "Moving north (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        } else if (key == GLFW_KEY_KP_2) {
+            // Numpad 2 - Move south
+            globalYOffset += 16;
+            needsReload = true;
+            std::cout << "Moving south (offset: " << globalXOffset << ", " << globalYOffset << ")" << std::endl;
+        } else if (key == GLFW_KEY_KP_5) {
+            // Numpad 5 - Reset to center
+            globalXOffset = 0;
+            globalYOffset = 0;
+            needsReload = true;
+            std::cout << "Reset to center (offset: 0, 0)" << std::endl;
         }
     } else if (action == GLFW_RELEASE) {
         keys[key] = false;
@@ -406,13 +435,6 @@ void processInput(GLFWwindow* window) {
     float velocity = camera.speed * deltaTime;
     
     if (camera.orbitMode) {
-        // In orbit mode, WASD moves the target point
-        // if (keys[GLFW_KEY_W]) camera.target += glm::vec3(0.0f, velocity, 0.0f);
-        // if (keys[GLFW_KEY_S]) camera.target -= glm::vec3(0.0f, velocity, 0.0f);
-        // if (keys[GLFW_KEY_A]) camera.target -= glm::vec3(velocity, 0.0f, 0.0f);
-        // if (keys[GLFW_KEY_D]) camera.target += glm::vec3(velocity, 0.0f, 0.0f);
-        // if (keys[GLFW_KEY_Q]) camera.target -= glm::vec3(0.0f, 0.0f, velocity);
-        // if (keys[GLFW_KEY_E]) camera.target += glm::vec3(0.0f, 0.0f, velocity);
         if (keys[GLFW_KEY_W]) camera.target += camera.front * velocity;
         if (keys[GLFW_KEY_S]) camera.target -= camera.front * velocity;
         if (keys[GLFW_KEY_A]) camera.target -= camera.right * velocity;
@@ -491,17 +513,18 @@ int main(int argc, char** argv) {
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_MULTISAMPLE);
     
-    // Load data
+    // Initial data load
     int width, height;
-    std::vector<float> elevationData = loadLunarData(filepath, width, height);
+    float minElev, maxElev;
+    std::vector<float> elevationData = loadLunarData(filepath, width, height, globalXOffset, globalYOffset);
     if (elevationData.empty()) {
         return -1;
     }
     
-    float minElev = *std::min_element(elevationData.begin(), elevationData.end());
-    float maxElev = *std::max_element(elevationData.begin(), elevationData.end());
+    minElev = *std::min_element(elevationData.begin(), elevationData.end());
+    maxElev = *std::max_element(elevationData.begin(), elevationData.end());
     
-    // Generate mesh
+    // Generate initial mesh
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     generateMesh(elevationData, width, height, vertices, indices);
@@ -566,6 +589,11 @@ int main(int argc, char** argv) {
     std::cout << "  WASD: Move forward/back/left/right" << std::endl;
     std::cout << "  Q/E: Move down/up" << std::endl;
     std::cout << "" << std::endl;
+    std::cout << "Terrain Navigation:" << std::endl;
+    std::cout << "  Numpad 4/6: Move west/east" << std::endl;
+    std::cout << "  Numpad 8/2: Move north/south" << std::endl;
+    std::cout << "  Numpad 5: Reset to center" << std::endl;
+    std::cout << "" << std::endl;
     std::cout << "Other:" << std::endl;
     std::cout << "  Shift: Move faster" << std::endl;
     std::cout << "  Tab: Toggle wireframe" << std::endl;
@@ -579,6 +607,39 @@ int main(int argc, char** argv) {
         lastFrame = currentFrame;
         
         processInput(window);
+        
+        // Check if we need to reload data
+        if (needsReload) {
+            std::cout << "Reloading terrain data..." << std::endl;
+            
+            // Load new data
+            elevationData = loadLunarData(filepath, width, height, globalXOffset, globalYOffset);
+            if (elevationData.empty()) {
+                std::cerr << "Failed to reload data, keeping previous terrain" << std::endl;
+                needsReload = false;
+                continue;
+            }
+            
+            minElev = *std::min_element(elevationData.begin(), elevationData.end());
+            maxElev = *std::max_element(elevationData.begin(), elevationData.end());
+            
+            // Regenerate mesh
+            vertices.clear();
+            indices.clear();
+            generateMesh(elevationData, width, height, vertices, indices);
+            
+            // Update GPU buffers
+            glBindBuffer(GL_ARRAY_BUFFER, VBO);
+            glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), 
+                         vertices.data(), GL_STATIC_DRAW);
+            
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int),
+                         indices.data(), GL_STATIC_DRAW);
+            
+            needsReload = false;
+            std::cout << "Terrain reloaded successfully!" << std::endl;
+        }
         
         // Clear
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
