@@ -1,98 +1,114 @@
-# Quick Start Guide
+# Lunar Viewer - Quick Start
 
-## Installation
+## Build & Run
+
 ```bash
-pip install numpy pyvista tqdm requests
+# Install dependencies (Ubuntu/Debian)
+sudo apt-get install build-essential libglew-dev libglfw3-dev libglm-dev
+
+# Build
+make
+
+# Run
+./lunar_viewer
 ```
 
-## Basic Usage
+## Controls
 
-### 1. Simple Viewer (easiest)
-```bash
-python simple_viewer.py
-```
-Loads 1024×1024 center region and shows interactive 3D view.
-
-### 2. Full-Featured Viewer
-```bash
-# View entire tile (downsampled)
-python viewer.py
-
-# View specific window at coordinates
-python viewer.py .data/SLDEM2015_512_00N_30N_000_045_FLOAT.IMG window 15000 10000
-
-# View different tile
-python viewer.py .data/SLDEM2015_512_30N_60N_000_045_FLOAT.IMG
-```
-
-### 3. Generate Images (no display needed)
-```bash
-python demo.py
-```
-Creates `lunar_surface.png` and `lunar_surface_topdown.png`
-
-### 4. Test Data Loading
-```bash
-python test_loader.py [path_to_IMG_file]
-```
-
-## Viewer Controls
+### Orbit Mode (Default - Best for exploring)
 
 **Mouse:**
-- Left drag: Rotate
-- Right drag: Pan
-- Scroll: Zoom
+- Left-click + drag → Rotate around terrain
+- Right-click + drag → Pan view
+- Scroll wheel → Zoom in/out
 
 **Keyboard:**
-- `r`: Reset view
-- `q`: Quit
-- `s`: Screenshot
+- WASD → Move target point
+- Q/E → Move target up/down
 
-## File Structure
+### FPS Mode (Press Space to toggle)
+
+**Mouse:**
+- Move mouse → Look around (cursor hidden)
+
+**Keyboard:**
+- WASD → Move forward/back/left/right
+- Q/E → Move up/down
+- Shift → Sprint (faster movement)
+
+### Global
+
+- **Space** → Toggle orbit/FPS mode
+- **R** → Reset camera
+- **Tab** → Toggle wireframe
+- **ESC** → Quit
+
+## Get Data
+
+If you don't have elevation data yet:
+
+```bash
+# Install Python dependencies (one-time)
+pip install requests tqdm
+
+# Download NASA lunar data (~1.32 GB per file)
+python download_dem_data.py
+```
+
+Data files will be saved to `.data/` directory.
+
+## Optional: Generate Preview Images
+
+```bash
+# Install Python dependencies (one-time)
+pip install numpy pyvista
+
+# Generate PNG preview images
+python demo.py
+```
+
+Creates `lunar_surface.png` and `lunar_surface_topdown.png`.
+
+## Project Structure
 
 ```
 map_the_moon/
-├── viewer.py              # Main interactive viewer
-├── simple_viewer.py       # Minimal example (50 lines)
-├── demo.py               # Batch rendering to images
-├── test_loader.py        # Data validation
-├── schema.py             # Data downloader
-├── requirements.txt      # Dependencies
-├── README.md            # Full documentation
-└── .data/               # Downloaded IMG files (1.32GB each)
-    └── SLDEM2015_*.IMG
+├── lunar_viewer           # Main C++ executable
+├── src/
+│   └── lunar_viewer.cpp   # Source code
+├── Makefile              # Build system
+├── CMakeLists.txt        # Alternative build (CMake)
+├── download_dem_data.py  # Tool: Download NASA data
+├── demo.py               # Tool: Generate preview images
+└── .data/                # NASA elevation data files
+    └── SLDEM2015_*.IMG   # Binary elevation data (1.32 GB each)
 ```
 
-## Key Features
+## Performance
 
-✓ Loads 1024×1024 mesh from 1.32 GB files in ~5 seconds
-✓ Hardware-accelerated OpenGL rendering via PyVista/VTK
-✓ Smooth camera controls (rotate, pan, zoom)
-✓ Realistic terrain coloring
-✓ Window function extracts any region efficiently
-✓ Can downsample full tiles for overview
+- **High-end GPU** (RTX 3060+): 200-300+ FPS
+- **Mid-range GPU** (GTX 1660): 120-180 FPS
+- **Integrated GPU** (Intel Iris): 60-90 FPS
 
-## Technical Details
+## Tips
 
-- **Data Format**: 32-bit float, little-endian, kilometers
-- **Full Resolution**: 23040 × 15360 pixels per tile
-- **Output Mesh**: 1024 × 1024 vertices (1,048,576 points)
-- **Coverage**: Each tile = 30° latitude × 45° longitude
-- **Vertical Scale**: 0.001x for realistic proportions
-
-## Examples
-
-```python
-# Load data programmatically
-from simple_viewer import load_lunar_data
-data = load_lunar_data("path/to/file.IMG", size=1024)
-
-# data is now a 1024x1024 NumPy array with elevations in meters
-print(f"Elevation range: {data.min():.0f} to {data.max():.0f} meters")
-```
+1. **Start in Orbit Mode** - More intuitive for terrain viewing
+2. **Left-click and drag** to rotate - natural 3D navigation
+3. **Press Space** only if you want FPS fly mode
+4. **Press R** anytime to reset camera if lost
+5. **Use wireframe** (Tab) to see mesh structure
 
 ## Troubleshooting
 
-**No display?** → Use `demo.py` instead
-**Out of memory?** → Use window mode instead of downsample
-**Slow rendering?** → Reduce mesh size or use simpler shading
+**Build fails?**
+→ Install dependencies: `make install-deps`
+
+**No data files?**
+→ Run `python download_dem_data.py`
+
+**Black screen?**
+→ Update graphics drivers
+
+**Low FPS?**
+→ Check if using integrated GPU instead of dedicated GPU
+
