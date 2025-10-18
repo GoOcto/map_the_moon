@@ -13,5 +13,6 @@ out/
 build/
 
 # custom
-CMakeLists.txt        # user can decide if they want to use .win10.txt or .linux.txt versions
+# user can decide if they want to use CMakeLists.win10.txt or CMakeLists.linux.txt
+CMakeLists.txt        
 *.dll
