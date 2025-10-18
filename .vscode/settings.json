@@ -1,0 +1,21 @@
+{
+    "cmake.configureOnOpen": false,
+    "cmake.generator": "Ninja",
+    "cmake.preferredGenerators": [
+        "Ninja",
+        "Visual Studio 17 2022"
+    ],
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.configureSettings": {
+        "CMAKE_BUILD_TYPE": "Release"
+    },
+    "cmake.configureEnvironment": {
+        "CC": "cl.exe",
+        "CXX": "cl.exe"
+    },
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "files.associations": {
+        "*.cpp": "cpp",
+        "*.h": "cpp"
+    }
+}
