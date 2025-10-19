@@ -4,6 +4,8 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <cstdint>
+#include <stdexcept>
 
 class TerrainLoader {
 public:
@@ -12,7 +14,7 @@ public:
     static constexpr int FULL_HEIGHT = 15360;
     
     static std::vector<float> loadLunarData(const char* filepath, int& outWidth, int& outHeight, 
-                                           int xoffset = 0, int yoffset = 0) {
+                                           int xoffset = 0, int yoffset = 0, int steps = 1) {
         std::cout << "Loading lunar data from: " << filepath << std::endl;
         
         std::ifstream file(filepath, std::ios::binary);
@@ -25,13 +27,55 @@ public:
         int centerY = FULL_HEIGHT / 2 + yoffset;
         int startX = centerX - MESH_SIZE / 2;
         int startY = centerY - MESH_SIZE / 2;
+
+        // LINES                 = 15360
+        // LINE_SAMPLES          = 23040
+        std::cout << "Reading data block at (" << startX << ", " << startY << ") with step " << steps << std::endl;
         
         std::vector<float> data(MESH_SIZE * MESH_SIZE);
-        
-        for (int y = 0; y < MESH_SIZE; y++) {
-            size_t offset = ((startY + y) * FULL_WIDTH + startX) * sizeof(float);
-            file.seekg(offset);
-            file.read(reinterpret_cast<char*>(&data[y * MESH_SIZE]), MESH_SIZE * sizeof(float));
+
+        // when offset is out of bounds of the file (15360 * 23040 * sizeof(float)), set the data to zero
+        if (steps <= 0) {
+            throw std::invalid_argument("TerrainLoader::loadLunarData requires steps > 0");
+        }
+
+        std::vector<float> rowBuffer(static_cast<size_t>(MESH_SIZE) * steps, -10.0f);
+
+        for (int row = 0; row < MESH_SIZE; ++row) {
+            std::fill(rowBuffer.begin(), rowBuffer.end(), -10.0f);
+
+            const int srcY = startY + row * steps;
+            if (srcY >= 0 && srcY < FULL_HEIGHT) {
+                const int srcXStart = startX;
+                const int srcXEnd = startX + MESH_SIZE * steps;
+                const int validXStart = std::max(0, srcXStart);
+                const int validXEnd = std::min(FULL_WIDTH, srcXEnd);
+
+                if (validXStart < validXEnd) {
+                    const size_t samplesToRead = static_cast<size_t>(validXEnd - validXStart);
+                    const size_t bufferOffset = static_cast<size_t>(validXStart - srcXStart);
+
+                    const std::int64_t linearIndex = static_cast<std::int64_t>(srcY) * FULL_WIDTH + validXStart;
+                    const std::streamoff byteOffset = static_cast<std::streamoff>(linearIndex) * sizeof(float);
+
+                    file.seekg(byteOffset);
+                    file.read(reinterpret_cast<char*>(rowBuffer.data() + bufferOffset), samplesToRead * sizeof(float));
+
+                    if (!file) {
+                        // If the read failed or was partial, zero out the attempted range and clear stream state.
+                        std::fill(rowBuffer.begin() + bufferOffset,
+                                  rowBuffer.begin() + bufferOffset + samplesToRead,
+                                  0.0f);
+                        file.clear();
+                    }
+                }
+            }
+
+            for (int x = 0; x < MESH_SIZE; ++x) {
+                const size_t sampleIndex = static_cast<size_t>(x * steps);
+                const size_t dataIndex = static_cast<size_t>(row) * MESH_SIZE + x;
+                data[dataIndex] = sampleIndex < rowBuffer.size() ? rowBuffer[sampleIndex] : 0.0f;
+            }
         }
         
         file.close();
