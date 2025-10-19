@@ -162,8 +162,10 @@ void main() {
 class LunarViewerApp : public Application {
 public:
     LunarViewerApp(const char* windowTitle, std::string dataRoot)
-        : Application(windowTitle), dataRoot_(std::move(dataRoot)) {
-        TerrainLoader::setDataRoot(dataRoot_);
+        : Application(windowTitle), 
+          dataRoot_(std::move(dataRoot)) // Store dataRoot
+    {
+        m_terrain = std::make_unique<TerrainLoader>(dataRoot_);
     }
 
 protected:
@@ -336,8 +338,9 @@ protected:
 
 private:
     void loadTerrain() {
-        elevationData_ = TerrainLoader::loadLunarData(
-            width_, height_, povLatitudeDegrees_, povLongitudeDegrees_, samplingStep_);
+        elevationData_ = m_terrain->loadOrUpdateTerrain(
+            povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, samplingStep_);
+        
         if (elevationData_.empty()) {
             throw std::runtime_error("Failed to load terrain data");
         }
@@ -364,8 +367,10 @@ private:
         needsReload_ = false;
 
         std::cout << "Reloading terrain data..." << std::endl;
-        auto newData = TerrainLoader::loadLunarData(
-            width_, height_, povLatitudeDegrees_, povLongitudeDegrees_, samplingStep_);
+        
+        auto newData = m_terrain->loadOrUpdateTerrain(
+            povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, samplingStep_);
+
         if (newData.empty()) {
             std::cerr << "Failed to reload data, keeping previous terrain" << std::endl;
             return;
@@ -453,8 +458,10 @@ private:
         curvaturePerUnit_ = std::max(curvatureLon, curvatureLat);
     }
 
+    std::unique_ptr<TerrainLoader> m_terrain;
     std::string dataRoot_;
     std::vector<float> elevationData_;
+    
     int width_ = TerrainLoader::MESH_SIZE;
     int height_ = TerrainLoader::MESH_SIZE;
 
