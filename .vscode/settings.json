@@ -17,6 +17,7 @@
     "files.associations": {
         "*.cpp": "cpp",
         "*.h": "cpp",
-        "xstring": "cpp"
+        "xstring": "cpp",
+        "unordered_map": "cpp"
     }
 }
