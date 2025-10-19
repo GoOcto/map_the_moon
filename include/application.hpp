@@ -146,15 +146,6 @@ public:
             } else if (key == GLFW_KEY_TAB) {
                 wireframeMode = !wireframeMode;
                 glPolygonMode(GL_FRONT_AND_BACK, wireframeMode ? GL_LINE : GL_FILL);
-            } else if (key == GLFW_KEY_SPACE) {
-                camera->orbitMode = !camera->orbitMode;
-                if (camera->orbitMode) {
-                    glfwSetInputMode(window->handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-                    std::cout << "Orbit mode enabled" << std::endl;
-                } else {
-                    glfwSetInputMode(window->handle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-                    std::cout << "FPS mode enabled" << std::endl;
-                }
             } else if (key == GLFW_KEY_R) {
                 camera->reset();
                 camera->updateVectors();
@@ -173,41 +164,28 @@ public:
     virtual void mouseCallback(GLFWwindow* w, double xpos, double ypos) {
         glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
         
-        if (camera->orbitMode) {
-            if (input->leftMousePressed) {
-                camera->yaw -= mouseDelta.x * camera->sensitivity;
-                camera->pitch -= mouseDelta.y * camera->sensitivity;
-                camera->constrainPitch();
-                camera->updateVectors();
-            }
-            
-            if (input->rightMousePressed || input->middleMousePressed) {
-                float panSpeed = 0.5f;
-                glm::vec3 right = glm::normalize(glm::cross(camera->front, camera->worldUp));
-                glm::vec3 up = glm::normalize(glm::cross(right, camera->front));
-                camera->target -= right * mouseDelta.x * panSpeed;
-                camera->target -= up * mouseDelta.y * panSpeed;
-                camera->updateVectors();
-            }
-        } else {
-            camera->yaw += mouseDelta.x * camera->sensitivity;
-            camera->pitch += mouseDelta.y * camera->sensitivity;
+        if (input->leftMousePressed) {
+            camera->yaw -= mouseDelta.x * camera->sensitivity;
+            camera->pitch -= mouseDelta.y * camera->sensitivity;
             camera->constrainPitch();
+            camera->updateVectors();
+        }
+        
+        if (input->rightMousePressed || input->middleMousePressed) {
+            float panSpeed = 0.5f;
+            glm::vec3 right = glm::normalize(glm::cross(camera->front, camera->worldUp));
+            glm::vec3 up = glm::normalize(glm::cross(right, camera->front));
+            camera->target -= right * mouseDelta.x * panSpeed;
+            camera->target -= up * mouseDelta.y * panSpeed;
             camera->updateVectors();
         }
     }
     
     virtual void scrollCallback(GLFWwindow* w, double xoffset, double yoffset) {
-        if (camera->orbitMode) {
-            camera->distance -= static_cast<float>(yoffset) * 20.0f;
-            if (camera->distance < 10.0f) camera->distance = 10.0f;
-            if (camera->distance > 2000.0f) camera->distance = 2000.0f;
-            camera->updateVectors();
-        } else {
-            camera->fov -= static_cast<float>(yoffset) * 2.0f;
-            if (camera->fov < 1.0f) camera->fov = 1.0f;
-            if (camera->fov > 90.0f) camera->fov = 90.0f;
-        }
+        camera->distance -= static_cast<float>(yoffset) * 20.0f;
+        if (camera->distance < 10.0f) camera->distance = 10.0f;
+        if (camera->distance > 2000.0f) camera->distance = 2000.0f;
+        camera->updateVectors();
     }
     
     virtual void framebufferSizeCallback(GLFWwindow* w, int width, int height) {

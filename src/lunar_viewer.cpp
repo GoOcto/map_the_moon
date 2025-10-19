@@ -34,8 +34,6 @@ constexpr float kOrbitPanSpeed = 0.5f;
 constexpr float kShiftSpeed = 150.0f;
 constexpr float kNormalSpeed = 50.0f;
 constexpr float kLightAngleDegrees = 20.0f;
-//constexpr float kColorMin = -5000.0f;
-//constexpr float kColorMax = 5000.0f;
 constexpr double kDefaultLatitudeDegrees = 15.0;
 constexpr double kDefaultLongitudeDegrees = 22.5;
 constexpr double kLatitudeStepDegrees = 0.1;
@@ -199,40 +197,24 @@ protected:
     void update(float deltaTime) override {
         const float velocity = camera->speed * deltaTime;
 
-        if (camera->orbitMode) {
-            // if (input->isKeyPressed(GLFW_KEY_W)) camera->target += camera->front * velocity;
-            // if (input->isKeyPressed(GLFW_KEY_S)) camera->target -= camera->front * velocity;
-            // if (input->isKeyPressed(GLFW_KEY_A)) camera->target -= camera->right * velocity;
-            // if (input->isKeyPressed(GLFW_KEY_D)) camera->target += camera->right * velocity;
-            // if (input->isKeyPressed(GLFW_KEY_Q)) camera->target -= camera->up * velocity;
-            // if (input->isKeyPressed(GLFW_KEY_E)) camera->target += camera->up * velocity;
-
-            if (input->isKeyPressed(GLFW_KEY_KP_4)) {
-                adjustLongitude(-kLongitudeStepDegrees*samplingStep_);
-            }
-            if (input->isKeyPressed(GLFW_KEY_KP_6)) {
-                adjustLongitude(kLongitudeStepDegrees*samplingStep_);
-            }
-            if (input->isKeyPressed(GLFW_KEY_KP_8)) {
-                adjustLatitude(-kLatitudeStepDegrees*samplingStep_);
-            }
-            if (input->isKeyPressed(GLFW_KEY_KP_2)) {
-                adjustLatitude(kLatitudeStepDegrees*samplingStep_);
-            }
-
-            if (input->isKeyPressed(GLFW_KEY_UP)) camera->distance -= velocity * 2.0f;
-            if (input->isKeyPressed(GLFW_KEY_DOWN)) camera->distance += velocity * 2.0f;
-            camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
-
-            camera->updateVectors();
-        } else {
-            if (input->isKeyPressed(GLFW_KEY_W)) camera->position += camera->front * velocity * kFpsMoveScale;
-            if (input->isKeyPressed(GLFW_KEY_S)) camera->position -= camera->front * velocity * kFpsMoveScale;
-            if (input->isKeyPressed(GLFW_KEY_A)) camera->position -= camera->right * velocity * kFpsMoveScale;
-            if (input->isKeyPressed(GLFW_KEY_D)) camera->position += camera->right * velocity * kFpsMoveScale;
-            if (input->isKeyPressed(GLFW_KEY_Q)) camera->position -= camera->up * velocity * kFpsMoveScale;
-            if (input->isKeyPressed(GLFW_KEY_E)) camera->position += camera->up * velocity * kFpsMoveScale;
+        if (input->isKeyPressed(GLFW_KEY_KP_4)) {
+            adjustLongitude(-kLongitudeStepDegrees*samplingStep_);
         }
+        if (input->isKeyPressed(GLFW_KEY_KP_6)) {
+            adjustLongitude(kLongitudeStepDegrees*samplingStep_);
+        }
+        if (input->isKeyPressed(GLFW_KEY_KP_8)) {
+            adjustLatitude(-kLatitudeStepDegrees*samplingStep_);
+        }
+        if (input->isKeyPressed(GLFW_KEY_KP_2)) {
+            adjustLatitude(kLatitudeStepDegrees*samplingStep_);
+        }
+
+        if (input->isKeyPressed(GLFW_KEY_UP)) camera->distance -= velocity * 2.0f;
+        if (input->isKeyPressed(GLFW_KEY_DOWN)) camera->distance += velocity * 2.0f;
+        camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
+
+        camera->updateVectors();
 
         camera->speed = input->isKeyPressed(GLFW_KEY_LEFT_SHIFT) ? kShiftSpeed : kNormalSpeed;
 
@@ -296,44 +278,9 @@ protected:
     }
 
     void mouseCallback(GLFWwindow* w, double xpos, double ypos) override {
-        // temporarily disabled
-
-        // const glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
-
-        // if (camera->orbitMode) {
-        //     if (input->leftMousePressed) {
-        //         camera->yaw -= mouseDelta.x * camera->sensitivity;
-        //         camera->pitch -= mouseDelta.y * camera->sensitivity;
-        //         camera->constrainPitch();
-        //         camera->updateVectors();
-        //     }
-
-        //     if (input->rightMousePressed || input->middleMousePressed) {
-        //         glm::vec3 right = glm::normalize(glm::cross(camera->front, camera->worldUp));
-        //         glm::vec3 up = glm::normalize(glm::cross(right, camera->front));
-        //         camera->target -= right * mouseDelta.x * kOrbitPanSpeed;
-        //         camera->target -= up * mouseDelta.y * kOrbitPanSpeed;
-        //         camera->updateVectors();
-        //     }
-        // } else {
-        //     camera->yaw += mouseDelta.x * camera->sensitivity;
-        //     camera->pitch += mouseDelta.y * camera->sensitivity;
-        //     camera->constrainPitch();
-        //     camera->updateVectors();
-        // }
     }
 
     void scrollCallback(GLFWwindow* w, double xoffset, double yoffset) override {
-        // temporarily disabled
-
-        // if (camera->orbitMode) {
-        //     camera->distance -= static_cast<float>(yoffset) * kScrollZoomFactor;
-        //     camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
-        //     camera->updateVectors();
-        // } else {
-        //     camera->fov -= static_cast<float>(yoffset) * kScrollFovStep;
-        //     camera->fov = std::clamp(camera->fov, 1.0f, 90.0f);
-        // }
     }
 
 private:
