@@ -87,6 +87,9 @@ public:
             std::ifstream file;
             double pixelsPerDegreeX = 0.0;
             double pixelsPerDegreeY = 0.0;
+            double degreesPerPixelX = 0.0;
+            double degreesPerPixelY = 0.0;
+            std::unordered_map<int, std::vector<float>> rowCache;
         };
 
         std::unordered_map<std::string, TileStream> tileCache;
@@ -114,12 +117,39 @@ public:
 
             stream.pixelsPerDegreeX = static_cast<double>(TILE_WIDTH) / localLonSpan;
             stream.pixelsPerDegreeY = static_cast<double>(TILE_HEIGHT) / localLatSpan;
+            stream.degreesPerPixelX = 1.0 / stream.pixelsPerDegreeX;
+            stream.degreesPerPixelY = 1.0 / stream.pixelsPerDegreeY;
 
             auto [emplacedIt, inserted] = tileCache.emplace(info.filename, std::move(stream));
             return &emplacedIt->second;
         };
 
-    auto lookupHeight = [&](double latDeg, double lonDeg) -> float {
+        auto fetchRow = [&](TileStream& stream, int rowIndex) -> const std::vector<float>* {
+            if (rowIndex < 0 || rowIndex >= TILE_HEIGHT) {
+                return nullptr;
+            }
+
+            auto cached = stream.rowCache.find(rowIndex);
+            if (cached != stream.rowCache.end()) {
+                return &cached->second;
+            }
+
+            std::vector<float> row(static_cast<size_t>(TILE_WIDTH));
+            const std::streamoff byteOffset = static_cast<std::streamoff>(rowIndex) * TILE_WIDTH * sizeof(float);
+
+            stream.file.clear();
+            stream.file.seekg(byteOffset);
+            stream.file.read(reinterpret_cast<char*>(row.data()), static_cast<std::streamsize>(row.size() * sizeof(float)));
+            if (!stream.file) {
+                stream.file.clear();
+                return nullptr;
+            }
+
+            auto [rowIt, inserted] = stream.rowCache.emplace(rowIndex, std::move(row));
+            return &rowIt->second;
+        };
+
+        auto lookupHeight = [&](double latDeg, double lonDeg) -> float {
             if (latDeg < -60.0 || latDeg > 60.0) {
                 return 0.0f;
             }
@@ -149,19 +179,12 @@ public:
             int pixelY = static_cast<int>(std::round((sampleTile->maxLatitude - clampedSampleLat) * stream->pixelsPerDegreeY));
             pixelY = std::clamp(pixelY, 0, TILE_HEIGHT - 1);
 
-            const std::int64_t linearIndex = static_cast<std::int64_t>(pixelY) * TILE_WIDTH + pixelX;
-            const std::streamoff byteOffset = static_cast<std::streamoff>(linearIndex) * sizeof(float);
-
-            stream->file.clear();
-            stream->file.seekg(byteOffset);
-            float value = 0.0f;
-            stream->file.read(reinterpret_cast<char*>(&value), sizeof(float));
-            if (!stream->file) {
-                stream->file.clear();
+            const std::vector<float>* rowData = fetchRow(*stream, pixelY);
+            if (!rowData) {
                 return 0.0f;
             }
 
-            return value;
+            return (*rowData)[pixelX];
         };
 
         if (!ensureTileStream(*tile)) {
