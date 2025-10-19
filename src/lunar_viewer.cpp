@@ -176,16 +176,16 @@ protected:
             // if (input->isKeyPressed(GLFW_KEY_E)) camera->target += camera->up * velocity;
 
             if (input->isKeyPressed(GLFW_KEY_KP_4)) {
-                adjustLongitude(-kLongitudeStepDegrees);
+                adjustLongitude(-kLongitudeStepDegrees*samplingStep_);
             }
             if (input->isKeyPressed(GLFW_KEY_KP_6)) {
-                adjustLongitude(kLongitudeStepDegrees);
+                adjustLongitude(kLongitudeStepDegrees*samplingStep_);
             }
             if (input->isKeyPressed(GLFW_KEY_KP_8)) {
-                adjustLatitude(-kLatitudeStepDegrees);
+                adjustLatitude(-kLatitudeStepDegrees*samplingStep_);
             }
             if (input->isKeyPressed(GLFW_KEY_KP_2)) {
-                adjustLatitude(kLatitudeStepDegrees);
+                adjustLatitude(kLatitudeStepDegrees*samplingStep_);
             }
 
             if (input->isKeyPressed(GLFW_KEY_UP)) camera->distance -= velocity * 2.0f;
@@ -342,8 +342,6 @@ private:
 
         TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
         mesh->updateVertexData();
-
-        std::cout << "Reload complete. Elevation range: " << minElevation_ << " to " << maxElevation_ << " meters" << std::endl;
     }
 
     void centerCamera() {
@@ -351,9 +349,9 @@ private:
             static_cast<float>(width_) / 2.0f,
             static_cast<float>(height_) / 2.0f,
             0.0f);
-        camera->distance = 500.0f;
+        camera->distance = 1000.0f;
         camera->yaw = -90.0f;
-        camera->pitch = 50.0f;
+        camera->pitch = 65.0f;
         camera->updateVectors();
     }
 
@@ -399,7 +397,7 @@ private:
     bool needsReload_ = false;
     double povLatitudeDegrees_ = kDefaultLatitudeDegrees;
     double povLongitudeDegrees_ = wrapLongitudeDegrees(kDefaultLongitudeDegrees);
-    int samplingStep_ = 1;
+    int samplingStep_ = 25;
 
     glm::vec3 lightDirection_{0.0f};
 

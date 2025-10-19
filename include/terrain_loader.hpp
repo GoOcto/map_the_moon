@@ -10,6 +10,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class TerrainLoader {
@@ -52,13 +53,7 @@ public:
         }
 
         const std::filesystem::path fullPath = std::filesystem::path(dataRoot_) / tile->filename;
-        std::cout << "Loading lunar data from: " << fullPath.string() << std::endl;
-
-        std::ifstream file(fullPath, std::ios::binary);
-        if (!file.is_open()) {
-            std::cerr << "Error: Could not open file: " << fullPath.string() << std::endl;
-            return {};
-        }
+        std::cout << "\nLoading lunar data centered from: " << fullPath.string() << std::endl;
 
         const double lonSpan = longitudeSpan(*tile);
         const double latSpan = tile->maxLatitude - tile->minLatitude;
@@ -68,6 +63,8 @@ public:
 
         const double pixelsPerDegreeX = static_cast<double>(TILE_WIDTH) / lonSpan;
         const double pixelsPerDegreeY = static_cast<double>(TILE_HEIGHT) / latSpan;
+        const double degreesPerPixelX = 1.0 / pixelsPerDegreeX;
+        const double degreesPerPixelY = 1.0 / pixelsPerDegreeY;
 
         const double lonOffsetDegrees = longitudeOffsetWithinTile(*tile, povLonDegrees);
         const double clampedLat = std::clamp(povLatDegrees, tile->minLatitude, tile->maxLatitude);
@@ -83,49 +80,108 @@ public:
         const int startX = centerX - sampleWidth / 2;
         const int startY = centerY - sampleHeight / 2;
 
-        std::cout << "Reading data block at (" << startX << ", " << startY
+        std::cout << "Sampling data region starting at (" << startX << ", " << startY
                   << ") with step " << steps << std::endl;
 
-        std::vector<float> data(static_cast<size_t>(width) * height, 0.0f);
-        std::vector<float> rowBuffer(static_cast<size_t>(sampleWidth), 0.0f);
+        struct TileStream {
+            std::ifstream file;
+            double pixelsPerDegreeX = 0.0;
+            double pixelsPerDegreeY = 0.0;
+        };
 
-        for (int row = 0; row < height; ++row) {
-            std::fill(rowBuffer.begin(), rowBuffer.end(), 0.0f);
+        std::unordered_map<std::string, TileStream> tileCache;
+        bool warnedMissingTile = false;
 
-            const int srcY = startY + row * steps;
-            if (srcY >= 0 && srcY < TILE_HEIGHT) {
-                const int srcXStart = startX;
-                const int srcXEnd = startX + sampleWidth;
-                const int validXStart = std::max(0, srcXStart);
-                const int validXEnd = std::min(TILE_WIDTH, srcXEnd);
+        auto ensureTileStream = [&](const TileInfo& info) -> TileStream* {
+            auto it = tileCache.find(info.filename);
+            if (it != tileCache.end()) {
+                return &it->second;
+            }
 
-                if (validXStart < validXEnd) {
-                    const size_t samplesToRead = static_cast<size_t>(validXEnd - validXStart);
-                    const size_t bufferOffset = static_cast<size_t>(validXStart - srcXStart);
+            TileStream stream;
+            const double localLonSpan = longitudeSpan(info);
+            const double localLatSpan = info.maxLatitude - info.minLatitude;
+            if (localLonSpan <= 0.0 || localLatSpan <= 0.0) {
+                throw std::runtime_error("Invalid tile metadata: zero span");
+            }
 
-                    const std::int64_t linearIndex = static_cast<std::int64_t>(srcY) * TILE_WIDTH + validXStart;
-                    const std::streamoff byteOffset = static_cast<std::streamoff>(linearIndex) * sizeof(float);
+            const std::filesystem::path path = std::filesystem::path(dataRoot_) / info.filename;
+            stream.file.open(path, std::ios::binary);
+            if (!stream.file.is_open()) {
+                std::cerr << "Error: Could not open file: " << path.string() << std::endl;
+                return nullptr;
+            }
 
-                    file.seekg(byteOffset);
-                    file.read(reinterpret_cast<char*>(rowBuffer.data() + bufferOffset), samplesToRead * sizeof(float));
+            stream.pixelsPerDegreeX = static_cast<double>(TILE_WIDTH) / localLonSpan;
+            stream.pixelsPerDegreeY = static_cast<double>(TILE_HEIGHT) / localLatSpan;
 
-                    if (!file) {
-                        std::fill(rowBuffer.begin() + bufferOffset,
-                                  rowBuffer.begin() + bufferOffset + samplesToRead,
-                                  0.0f);
-                        file.clear();
-                    }
+            auto [emplacedIt, inserted] = tileCache.emplace(info.filename, std::move(stream));
+            return &emplacedIt->second;
+        };
+
+    auto lookupHeight = [&](double latDeg, double lonDeg) -> float {
+            if (latDeg < -60.0 || latDeg > 60.0) {
+                return 0.0f;
+            }
+
+            const double wrappedLon = wrapLongitude(lonDeg);
+            const TileInfo* sampleTile = findTile(latDeg, lonDeg);
+            if (!sampleTile) {
+                if (!warnedMissingTile) {
+                    std::cerr << "Warning: No DEM tile for lat=" << latDeg
+                              << " lon=" << wrappedLon << std::endl;
+                    warnedMissingTile = true;
                 }
+                return 0.0f;
             }
 
-            for (int x = 0; x < width; ++x) {
-                const size_t sampleIndex = static_cast<size_t>(x * steps);
-                const size_t dataIndex = static_cast<size_t>(row) * width + x;
-                data[dataIndex] = sampleIndex < rowBuffer.size() ? rowBuffer[sampleIndex] : 0.0f;
+            TileStream* stream = ensureTileStream(*sampleTile);
+            if (!stream) {
+                return 0.0f;
             }
+
+            const double lonOffset = longitudeOffsetWithinTile(*sampleTile, wrappedLon);
+            const double clampedSampleLat = std::clamp(latDeg, sampleTile->minLatitude, sampleTile->maxLatitude);
+
+            int pixelX = static_cast<int>(std::round(lonOffset * stream->pixelsPerDegreeX));
+            pixelX = std::clamp(pixelX, 0, TILE_WIDTH - 1);
+
+            int pixelY = static_cast<int>(std::round((sampleTile->maxLatitude - clampedSampleLat) * stream->pixelsPerDegreeY));
+            pixelY = std::clamp(pixelY, 0, TILE_HEIGHT - 1);
+
+            const std::int64_t linearIndex = static_cast<std::int64_t>(pixelY) * TILE_WIDTH + pixelX;
+            const std::streamoff byteOffset = static_cast<std::streamoff>(linearIndex) * sizeof(float);
+
+            stream->file.clear();
+            stream->file.seekg(byteOffset);
+            float value = 0.0f;
+            stream->file.read(reinterpret_cast<char*>(&value), sizeof(float));
+            if (!stream->file) {
+                stream->file.clear();
+                return 0.0f;
+            }
+
+            return value;
+        };
+
+        if (!ensureTileStream(*tile)) {
+            return {};
         }
 
-        file.close();
+        std::vector<float> data(static_cast<size_t>(width) * height, 0.0f);
+
+        for (int row = 0; row < height; ++row) {
+            const int srcY = startY + row * steps;
+            const double sampleLat = tile->maxLatitude - static_cast<double>(srcY) * degreesPerPixelY;
+
+            for (int x = 0; x < width; ++x) {
+                const int srcX = startX + x * steps;
+                const double sampleLon = tile->minLongitude + static_cast<double>(srcX) * degreesPerPixelX;
+
+                const size_t dataIndex = static_cast<size_t>(row) * width + x;
+                data[dataIndex] = lookupHeight(sampleLat, sampleLon);
+            }
+        }
 
         for (float& val : data) {
             val *= 1000.0f;
@@ -133,7 +189,7 @@ public:
 
         float minElev = *std::min_element(data.begin(), data.end());
         float maxElev = *std::max_element(data.begin(), data.end());
-        std::cout << "Elevation range: " << minElev << " to " << maxElev << " meters" << std::endl;
+        // std::cout << "Elevation range: " << minElev << " to " << maxElev << " meters" << std::endl;
 
         return data;
     }
@@ -278,21 +334,19 @@ private:
     }
 
     static const TileInfo* findTile(double latDegrees, double lonDegrees) {
+        if (latDegrees < -60.0 || latDegrees > 60.0) {
+            return nullptr;
+        }
+
         const double wrappedLon = wrapLongitude(lonDegrees);
-        const double clampedLat = std::clamp(latDegrees, -60.0, 60.0);
 
         for (const auto& tile : tiles()) {
-            if (clampedLat >= tile.minLatitude - 1e-6 && clampedLat <= tile.maxLatitude + 1e-6 &&
+            if (latDegrees >= tile.minLatitude - 1e-6 && latDegrees <= tile.maxLatitude + 1e-6 &&
                 longitudeInTile(tile, wrappedLon)) {
                 return &tile;
             }
         }
 
-        if (!tiles().empty()) {
-            std::cerr << "Warning: No exact tile match for lat=" << latDegrees
-                      << " lon=" << lonDegrees << ". Falling back to first tile." << std::endl;
-            return &tiles().front();
-        }
         return nullptr;
     }
 };
