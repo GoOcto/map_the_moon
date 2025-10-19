@@ -36,7 +36,20 @@ constexpr float kNormalSpeed = 50.0f;
 constexpr float kLightAngleDegrees = 20.0f;
 constexpr float kColorMin = -5000.0f;
 constexpr float kColorMax = 5000.0f;
-constexpr int kOffsetStep = 16;
+constexpr double kDefaultLatitudeDegrees = 15.0;
+constexpr double kDefaultLongitudeDegrees = 22.5;
+constexpr double kLatitudeStepDegrees = 0.1;
+constexpr double kLongitudeStepDegrees = 0.1;
+constexpr double kMinLatitudeDegrees = -90.0;
+constexpr double kMaxLatitudeDegrees = 90.0;
+
+double wrapLongitudeDegrees(double lonDegrees) {
+    double wrapped = std::fmod(lonDegrees, 360.0);
+    if (wrapped < 0.0) {
+        wrapped += 360.0;
+    }
+    return wrapped;
+}
 
 const char* kVertexShaderSource = R"(
 #version 330 core
@@ -119,8 +132,10 @@ void main() {
 
 class LunarViewerApp : public Application {
 public:
-    LunarViewerApp(const char* windowTitle, std::string dataPath)
-        : Application(windowTitle), dataPath_(std::move(dataPath)) {}
+    LunarViewerApp(const char* windowTitle, std::string dataRoot)
+        : Application(windowTitle), dataRoot_(std::move(dataRoot)) {
+        TerrainLoader::setDataRoot(dataRoot_);
+    }
 
 protected:
     void setup() override {
@@ -128,6 +143,7 @@ protected:
 
         shader = std::make_unique<ShaderProgram>(kVertexShaderSource, kFragmentShaderSource);
 
+    logCurrentCoordinates();
         loadTerrain();
         mesh->uploadData();
         mesh->setupVertexAttributes({3, 1});
@@ -152,28 +168,24 @@ protected:
         const float velocity = camera->speed * deltaTime;
 
         if (camera->orbitMode) {
-            if (input->isKeyPressed(GLFW_KEY_W)) camera->target += camera->front * velocity;
-            if (input->isKeyPressed(GLFW_KEY_S)) camera->target -= camera->front * velocity;
-            if (input->isKeyPressed(GLFW_KEY_A)) camera->target -= camera->right * velocity;
-            if (input->isKeyPressed(GLFW_KEY_D)) camera->target += camera->right * velocity;
-            if (input->isKeyPressed(GLFW_KEY_Q)) camera->target -= camera->up * velocity;
-            if (input->isKeyPressed(GLFW_KEY_E)) camera->target += camera->up * velocity;
+            // if (input->isKeyPressed(GLFW_KEY_W)) camera->target += camera->front * velocity;
+            // if (input->isKeyPressed(GLFW_KEY_S)) camera->target -= camera->front * velocity;
+            // if (input->isKeyPressed(GLFW_KEY_A)) camera->target -= camera->right * velocity;
+            // if (input->isKeyPressed(GLFW_KEY_D)) camera->target += camera->right * velocity;
+            // if (input->isKeyPressed(GLFW_KEY_Q)) camera->target -= camera->up * velocity;
+            // if (input->isKeyPressed(GLFW_KEY_E)) camera->target += camera->up * velocity;
 
             if (input->isKeyPressed(GLFW_KEY_KP_4)) {
-                globalXOffset_ -= kOffsetStep * globalTSteps_;
-                needsReload_ = true;
+                adjustLongitude(-kLongitudeStepDegrees);
             }
             if (input->isKeyPressed(GLFW_KEY_KP_6)) {
-                globalXOffset_ += kOffsetStep * globalTSteps_;
-                needsReload_ = true;
+                adjustLongitude(kLongitudeStepDegrees);
             }
             if (input->isKeyPressed(GLFW_KEY_KP_8)) {
-                globalYOffset_ += kOffsetStep * globalTSteps_;
-                needsReload_ = true;
+                adjustLatitude(-kLatitudeStepDegrees);
             }
             if (input->isKeyPressed(GLFW_KEY_KP_2)) {
-                globalYOffset_ -= kOffsetStep * globalTSteps_;
-                needsReload_ = true;
+                adjustLatitude(kLatitudeStepDegrees);
             }
 
             if (input->isKeyPressed(GLFW_KEY_UP)) camera->distance -= velocity * 2.0f;
@@ -226,18 +238,16 @@ protected:
         if (action == GLFW_PRESS || action == GLFW_REPEAT) {
             switch (key) {
                 case GLFW_KEY_KP_5:
-                    globalXOffset_ = 0;
-                    globalYOffset_ = 0;
-                    needsReload_ = true;
+                    resetViewPosition();
                     break;
                 case GLFW_KEY_KP_ADD:
-                    globalTSteps_ += 1;
-                    if (globalTSteps_ > 50) globalTSteps_ = 50;
+                    samplingStep_ += 1;
+                    if (samplingStep_ > 50) samplingStep_ = 50;
                     needsReload_ = true;
                     break;
                 case GLFW_KEY_KP_SUBTRACT:
-                    globalTSteps_ -= 1;
-                    if (globalTSteps_ < 1) globalTSteps_ = 1;
+                    samplingStep_ -= 1;
+                    if (samplingStep_ < 1) samplingStep_ = 1;
                     needsReload_ = true;
                     break;
                 default:
@@ -247,48 +257,58 @@ protected:
     }
 
     void mouseCallback(GLFWwindow* w, double xpos, double ypos) override {
-        const glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
+        // temporarily disabled
 
-        if (camera->orbitMode) {
-            if (input->leftMousePressed) {
-                camera->yaw -= mouseDelta.x * camera->sensitivity;
-                camera->pitch -= mouseDelta.y * camera->sensitivity;
-                camera->constrainPitch();
-                camera->updateVectors();
-            }
+        // const glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
 
-            if (input->rightMousePressed || input->middleMousePressed) {
-                glm::vec3 right = glm::normalize(glm::cross(camera->front, camera->worldUp));
-                glm::vec3 up = glm::normalize(glm::cross(right, camera->front));
-                camera->target -= right * mouseDelta.x * kOrbitPanSpeed;
-                camera->target -= up * mouseDelta.y * kOrbitPanSpeed;
-                camera->updateVectors();
-            }
-        } else {
-            camera->yaw += mouseDelta.x * camera->sensitivity;
-            camera->pitch += mouseDelta.y * camera->sensitivity;
-            camera->constrainPitch();
-            camera->updateVectors();
-        }
+        // if (camera->orbitMode) {
+        //     if (input->leftMousePressed) {
+        //         camera->yaw -= mouseDelta.x * camera->sensitivity;
+        //         camera->pitch -= mouseDelta.y * camera->sensitivity;
+        //         camera->constrainPitch();
+        //         camera->updateVectors();
+        //     }
+
+        //     if (input->rightMousePressed || input->middleMousePressed) {
+        //         glm::vec3 right = glm::normalize(glm::cross(camera->front, camera->worldUp));
+        //         glm::vec3 up = glm::normalize(glm::cross(right, camera->front));
+        //         camera->target -= right * mouseDelta.x * kOrbitPanSpeed;
+        //         camera->target -= up * mouseDelta.y * kOrbitPanSpeed;
+        //         camera->updateVectors();
+        //     }
+        // } else {
+        //     camera->yaw += mouseDelta.x * camera->sensitivity;
+        //     camera->pitch += mouseDelta.y * camera->sensitivity;
+        //     camera->constrainPitch();
+        //     camera->updateVectors();
+        // }
     }
 
     void scrollCallback(GLFWwindow* w, double xoffset, double yoffset) override {
-        if (camera->orbitMode) {
-            camera->distance -= static_cast<float>(yoffset) * kScrollZoomFactor;
-            camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
-            camera->updateVectors();
-        } else {
-            camera->fov -= static_cast<float>(yoffset) * kScrollFovStep;
-            camera->fov = std::clamp(camera->fov, 1.0f, 90.0f);
-        }
+        // temporarily disabled
+
+        // if (camera->orbitMode) {
+        //     camera->distance -= static_cast<float>(yoffset) * kScrollZoomFactor;
+        //     camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
+        //     camera->updateVectors();
+        // } else {
+        //     camera->fov -= static_cast<float>(yoffset) * kScrollFovStep;
+        //     camera->fov = std::clamp(camera->fov, 1.0f, 90.0f);
+        // }
     }
 
 private:
     void loadTerrain() {
         elevationData_ = TerrainLoader::loadLunarData(
-            dataPath_.c_str(), width_, height_, globalXOffset_, globalYOffset_);
+            width_, height_, povLatitudeDegrees_, povLongitudeDegrees_, samplingStep_);
         if (elevationData_.empty()) {
             throw std::runtime_error("Failed to load terrain data");
+        }
+
+        if (samplingStep_ > 1) {
+            for (float& val : elevationData_) {
+                val *= 1.0f / static_cast<float>(samplingStep_);
+            }
         }
 
         minElevation_ = *std::min_element(elevationData_.begin(), elevationData_.end());
@@ -306,7 +326,7 @@ private:
 
         std::cout << "Reloading terrain data..." << std::endl;
         auto newData = TerrainLoader::loadLunarData(
-            dataPath_.c_str(), width_, height_, globalXOffset_, globalYOffset_, globalTSteps_);
+            width_, height_, povLatitudeDegrees_, povLongitudeDegrees_, samplingStep_);
         if (newData.empty()) {
             std::cerr << "Failed to reload data, keeping previous terrain" << std::endl;
             return;
@@ -317,7 +337,7 @@ private:
         maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
 
         for (float& val : elevationData_) {
-            val *= 1.0f / static_cast<float>(globalTSteps_);
+            val *= 1.0f / static_cast<float>(samplingStep_);
         }
 
         TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
@@ -337,7 +357,38 @@ private:
         camera->updateVectors();
     }
 
-    std::string dataPath_;
+    void adjustLatitude(double deltaDegrees) {
+        const double newLat = std::clamp(
+            povLatitudeDegrees_ + deltaDegrees, kMinLatitudeDegrees, kMaxLatitudeDegrees);
+        if (std::fabs(newLat - povLatitudeDegrees_) > 1e-9) {
+            povLatitudeDegrees_ = newLat;
+            needsReload_ = true;
+            logCurrentCoordinates();
+        }
+    }
+
+    void adjustLongitude(double deltaDegrees) {
+        const double newLon = wrapLongitudeDegrees(povLongitudeDegrees_ + deltaDegrees);
+        if (std::fabs(newLon - povLongitudeDegrees_) > 1e-9) {
+            povLongitudeDegrees_ = newLon;
+            needsReload_ = true;
+            logCurrentCoordinates();
+        }
+    }
+
+    void resetViewPosition() {
+        povLatitudeDegrees_ = kDefaultLatitudeDegrees;
+        povLongitudeDegrees_ = wrapLongitudeDegrees(kDefaultLongitudeDegrees);
+        needsReload_ = true;
+        logCurrentCoordinates();
+    }
+
+    void logCurrentCoordinates() const {
+        std::cout << "View centered at latitude " << povLatitudeDegrees_
+                  << " deg, longitude " << povLongitudeDegrees_ << " deg" << std::endl;
+    }
+
+    std::string dataRoot_;
     std::vector<float> elevationData_;
     int width_ = TerrainLoader::MESH_SIZE;
     int height_ = TerrainLoader::MESH_SIZE;
@@ -346,9 +397,9 @@ private:
     float maxElevation_ = 0.0f;
 
     bool needsReload_ = false;
-    int globalXOffset_ = 0;
-    int globalYOffset_ = 0;
-    int globalTSteps_ = 1;
+    double povLatitudeDegrees_ = kDefaultLatitudeDegrees;
+    double povLongitudeDegrees_ = wrapLongitudeDegrees(kDefaultLongitudeDegrees);
+    int samplingStep_ = 1;
 
     glm::vec3 lightDirection_{0.0f};
 
@@ -361,11 +412,11 @@ private:
 };
 
 int main(int argc, char** argv) {
-    const char* defaultPath = ".data/dem/SLDEM2015_512_00N_30N_000_045_FLOAT.IMG";
-    std::string dataPath = (argc > 1) ? argv[1] : defaultPath;
+    const char* defaultDataRoot = ".data/dem";
+    std::string dataRoot = (argc > 1) ? argv[1] : defaultDataRoot;
 
     try {
-        LunarViewerApp app("Lunar Surface Viewer", std::move(dataPath));
+        LunarViewerApp app("Lunar Surface Viewer", std::move(dataRoot));
         app.run();
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;

@@ -16,6 +16,7 @@
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "files.associations": {
         "*.cpp": "cpp",
-        "*.h": "cpp"
+        "*.h": "cpp",
+        "xstring": "cpp"
     }
 }
