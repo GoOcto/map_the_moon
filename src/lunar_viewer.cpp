@@ -34,14 +34,14 @@ constexpr float kOrbitPanSpeed = 0.5f;
 constexpr float kShiftSpeed = 150.0f;
 constexpr float kNormalSpeed = 50.0f;
 constexpr float kLightAngleDegrees = 20.0f;
-constexpr float kColorMin = -5000.0f;
-constexpr float kColorMax = 5000.0f;
+//constexpr float kColorMin = -5000.0f;
+//constexpr float kColorMax = 5000.0f;
 constexpr double kDefaultLatitudeDegrees = 15.0;
 constexpr double kDefaultLongitudeDegrees = 22.5;
 constexpr double kLatitudeStepDegrees = 0.1;
 constexpr double kLongitudeStepDegrees = 0.1;
-constexpr double kMinLatitudeDegrees = -90.0;
-constexpr double kMaxLatitudeDegrees = 90.0;
+constexpr double kMinLatitudeDegrees = -60.0;
+constexpr double kMaxLatitudeDegrees = 60.0;
 
 double wrapLongitudeDegrees(double lonDegrees) {
     double wrapped = std::fmod(lonDegrees, 360.0);
@@ -63,12 +63,41 @@ out vec3 WorldPos;
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform float uCurvature;
 
 void main() {
-    WorldPos = vec3(model * vec4(aPos, 1.0));
-    FragPos = vec3(model * vec4(aPos, 1.0));
+    const float kHalfWidth = 512.0;
+    const float kHalfHeight = 512.0;
+    const float kEpsilon = 1e-6;
+
+    vec2 centered = vec2(aPos.x - kHalfWidth, aPos.y - kHalfHeight);
+    vec3 curved = vec3(centered, aPos.z);
+
+    if (abs(uCurvature) > kEpsilon) {
+        float radius = 1.0 / uCurvature;
+        float thetaX = centered.x * uCurvature;
+        float thetaY = centered.y * uCurvature;
+
+        float sinX = sin(thetaX);
+        float cosX = cos(thetaX);
+        float sinY = sin(thetaY);
+        float cosY = cos(thetaY);
+
+        curved.x = radius * sinX;
+        curved.y = radius * sinY;
+
+        float drop = radius * (2.0 - cosX - cosY);
+        curved.z = aPos.z - drop;
+    }
+
+    curved.x += kHalfWidth;
+    curved.y += kHalfHeight;
+
+    vec4 world = model * vec4(curved, 1.0);
+    WorldPos = vec3(world);
+    FragPos = WorldPos;
     elevation = aElevation;
-    gl_Position = projection * view * vec4(FragPos, 1.0);
+    gl_Position = projection * view * world;
 }
 )";
 
@@ -95,7 +124,7 @@ vec3 getTerrainColor(float normalized) {
 
     float scaled = normalized * 4.0;
     int idx = int(floor(scaled));
-    idx = clamp(idx, 0, 3);
+    idx = clamp(idx, 0, 4);
     float t = scaled - float(idx);
 
     vec3 mixColor = mix(colors[idx], colors[idx + 1], t) * 0.7 + white * 0.3;
@@ -143,7 +172,7 @@ protected:
 
         shader = std::make_unique<ShaderProgram>(kVertexShaderSource, kFragmentShaderSource);
 
-    logCurrentCoordinates();
+        logCurrentCoordinates();
         loadTerrain();
         mesh->uploadData();
         mesh->setupVertexAttributes({3, 1});
@@ -155,6 +184,7 @@ protected:
         minElevLoc_ = shader->getUniformLocation("minElevation");
         maxElevLoc_ = shader->getUniformLocation("maxElevation");
         lightDirLoc_ = shader->getUniformLocation("lightDirection");
+        curvatureLoc_ = shader->getUniformLocation("uCurvature");
 
         lightDirection_ = glm::normalize(glm::vec3(
             std::cos(glm::radians(kLightAngleDegrees)),
@@ -219,9 +249,16 @@ protected:
         glUniformMatrix4fv(modelLoc_, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc_, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projectionLoc_, 1, GL_FALSE, glm::value_ptr(projection));
+
+        float kColorMin = -10000.0f / samplingStep_;
+        float kColorMax = 10000.0f / samplingStep_;
+
         glUniform1f(minElevLoc_, kColorMin);
         glUniform1f(maxElevLoc_, kColorMax);
         glUniform3fv(lightDirLoc_, 1, glm::value_ptr(lightDirection_));
+        if (curvatureLoc_ != -1) {
+            glUniform1f(curvatureLoc_, curvaturePerUnit_);
+        }
 
         mesh->draw();
     }
@@ -314,6 +351,8 @@ private:
         minElevation_ = *std::min_element(elevationData_.begin(), elevationData_.end());
         maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
 
+        updateCurvatureAmount();
+
         mesh->vertices.clear();
         mesh->indices.clear();
         TerrainLoader::generateMesh(elevationData_, width_, height_, mesh->vertices, mesh->indices);
@@ -340,6 +379,8 @@ private:
             val *= 1.0f / static_cast<float>(samplingStep_);
         }
 
+        updateCurvatureAmount();
+
         TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
         mesh->updateVertexData();
     }
@@ -349,9 +390,9 @@ private:
             static_cast<float>(width_) / 2.0f,
             static_cast<float>(height_) / 2.0f,
             0.0f);
-        camera->distance = 1000.0f;
+        camera->distance = 600.0f;
         camera->yaw = -90.0f;
-        camera->pitch = 65.0f;
+        camera->pitch = 45.0f;
         camera->updateVectors();
     }
 
@@ -386,6 +427,32 @@ private:
                   << " deg, longitude " << povLongitudeDegrees_ << " deg" << std::endl;
     }
 
+    void updateCurvatureAmount() {
+        const float degreesPerPixelLon = 45.0f / static_cast<float>(TerrainLoader::TILE_WIDTH);
+        const float degreesPerPixelLat = 30.0f / static_cast<float>(TerrainLoader::TILE_HEIGHT);
+
+        const float horizontalSamples = static_cast<float>(width_ - 1) * static_cast<float>(samplingStep_);
+        const float verticalSamples = static_cast<float>(height_ - 1) * static_cast<float>(samplingStep_);
+
+        const float lonSpanDegrees = horizontalSamples * degreesPerPixelLon;
+        const float latSpanDegrees = verticalSamples * degreesPerPixelLat;
+
+        const float halfWidth = static_cast<float>(width_ - 1) * 0.5f;
+        const float halfHeight = static_cast<float>(height_ - 1) * 0.5f;
+
+        float curvatureLon = 0.0f;
+        if (halfWidth > 0.0f) {
+            curvatureLon = glm::radians(lonSpanDegrees * 0.5f) / halfWidth;
+        }
+
+        float curvatureLat = 0.0f;
+        if (halfHeight > 0.0f) {
+            curvatureLat = glm::radians(latSpanDegrees * 0.5f) / halfHeight;
+        }
+
+        curvaturePerUnit_ = std::max(curvatureLon, curvatureLat);
+    }
+
     std::string dataRoot_;
     std::vector<float> elevationData_;
     int width_ = TerrainLoader::MESH_SIZE;
@@ -407,6 +474,8 @@ private:
     GLint minElevLoc_ = -1;
     GLint maxElevLoc_ = -1;
     GLint lightDirLoc_ = -1;
+    GLint curvatureLoc_ = -1;
+    float curvaturePerUnit_ = 0.0f;
 };
 
 int main(int argc, char** argv) {
