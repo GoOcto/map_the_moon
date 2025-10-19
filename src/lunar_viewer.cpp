@@ -160,19 +160,19 @@ protected:
             if (input->isKeyPressed(GLFW_KEY_E)) camera->target += camera->up * velocity;
 
             if (input->isKeyPressed(GLFW_KEY_KP_4)) {
-                globalXOffset_ -= kOffsetStep;
+                globalXOffset_ -= kOffsetStep * globalTSteps_;
                 needsReload_ = true;
             }
             if (input->isKeyPressed(GLFW_KEY_KP_6)) {
-                globalXOffset_ += kOffsetStep;  
+                globalXOffset_ += kOffsetStep * globalTSteps_;
                 needsReload_ = true;
             }
             if (input->isKeyPressed(GLFW_KEY_KP_8)) {
-                globalYOffset_ += kOffsetStep;
+                globalYOffset_ += kOffsetStep * globalTSteps_;
                 needsReload_ = true;
             }
             if (input->isKeyPressed(GLFW_KEY_KP_2)) {
-                globalYOffset_ -= kOffsetStep;
+                globalYOffset_ -= kOffsetStep * globalTSteps_;
                 needsReload_ = true;
             }
 
@@ -228,6 +228,16 @@ protected:
                 case GLFW_KEY_KP_5:
                     globalXOffset_ = 0;
                     globalYOffset_ = 0;
+                    needsReload_ = true;
+                    break;
+                case GLFW_KEY_KP_ADD:
+                    globalTSteps_ += 1;
+                    if (globalTSteps_ > 50) globalTSteps_ = 50;
+                    needsReload_ = true;
+                    break;
+                case GLFW_KEY_KP_SUBTRACT:
+                    globalTSteps_ -= 1;
+                    if (globalTSteps_ < 1) globalTSteps_ = 1;
                     needsReload_ = true;
                     break;
                 default:
@@ -296,7 +306,7 @@ private:
 
         std::cout << "Reloading terrain data..." << std::endl;
         auto newData = TerrainLoader::loadLunarData(
-            dataPath_.c_str(), width_, height_, globalXOffset_, globalYOffset_);
+            dataPath_.c_str(), width_, height_, globalXOffset_, globalYOffset_, globalTSteps_);
         if (newData.empty()) {
             std::cerr << "Failed to reload data, keeping previous terrain" << std::endl;
             return;
@@ -305,6 +315,10 @@ private:
         elevationData_ = std::move(newData);
         minElevation_ = *std::min_element(elevationData_.begin(), elevationData_.end());
         maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
+
+        for (float& val : elevationData_) {
+            val *= 1.0f / static_cast<float>(globalTSteps_);
+        }
 
         TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
         mesh->updateVertexData();
@@ -334,6 +348,7 @@ private:
     bool needsReload_ = false;
     int globalXOffset_ = 0;
     int globalYOffset_ = 0;
+    int globalTSteps_ = 1;
 
     glm::vec3 lightDirection_{0.0f};
 
