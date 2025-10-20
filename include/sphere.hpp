@@ -16,11 +16,11 @@
 namespace {
     // --- CONSTANTS ---
     constexpr float kDefaultSphereRadius = 1000.0f;
-    constexpr int kTileLatitudeDegrees = 5;
-    constexpr int kTileLongitudeDegrees = 5;
+    constexpr int kTileLatitudeDegrees = 1;
+    constexpr int kTileLongitudeDegrees = 1;
     constexpr int kBaseTileResolution = 2;
     constexpr int kBaseSegmentsPerEdge = (kBaseTileResolution > 1) ? (kBaseTileResolution - 1) : 1;
-    constexpr int kMaxTileExponent = 12; // Up to 4096 segments per edge
+    constexpr int kMaxTileExponent = 9; // Up to 512 segments per edge
     constexpr float kTargetTrianglePixelWidth = 16.0f;
 
     struct Tile {
