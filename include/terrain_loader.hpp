@@ -138,7 +138,7 @@ class TerrainLoader {
         m_currentCenterY = centerY;
         m_currentTileFile = tile.filename;
         m_isInitialized = true;
-        clearCachedChunks();
+        //clearCachedChunks();
     }
 
     /**
@@ -223,7 +223,7 @@ class TerrainLoader {
         m_currentLon = povLon;
         m_currentCenterX = effectiveNewCenterX;
         m_currentCenterY = effectiveNewCenterY;
-        clearCachedChunks();
+        //clearCachedChunks();
     }
 
     // --- Tile Loading Helpers ---
