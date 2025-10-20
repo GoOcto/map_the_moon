@@ -36,6 +36,7 @@ public:
         }
         
         glfwMakeContextCurrent(handle);
+        glfwSwapInterval(1); // Enable VSync
         glfwGetFramebufferSize(handle, &currentWidth, &currentHeight);
         glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     }
