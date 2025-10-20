@@ -33,7 +33,7 @@ public:
         
         try {
             window = std::make_unique<Window>(windowTitle);
-            input = std::make_unique<InputHandler>(Window::DEFAULT_WIDTH, Window::DEFAULT_HEIGHT);
+            input = std::make_unique<InputHandler>((float)Window::DEFAULT_WIDTH, (float)Window::DEFAULT_HEIGHT);
             camera = std::make_unique<Camera>();
 
             initializeGL();
