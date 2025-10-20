@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -12,7 +11,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "color_map_sampler.hpp"
 #include "terrain_dataset.hpp"
 
 class TerrainLoader {
@@ -66,103 +64,6 @@ class TerrainLoader {
         // Return a copy of the final elevation data
         std::vector<float> dataInKM = m_elevationData;
         return dataInKM;
-    }
-
-    /**
-     * @brief (STATIC) Generates vertex and index buffers from elevation data.
-     * Your app calls this.
-     */
-    static void generateMesh(const std::vector<float>& elevationData, int width, int height,
-                             std::vector<float>& vertices, std::vector<unsigned int>& indices) {
-        std::cout << "Generating mesh..." << std::endl;
-
-        float scaleZ = 1000.f / 30.325f; //  30.325km/degree at the equator or 30.325/512km per sample, because grid
-                                         //  samples are 1 unit apart in X/Y
-        vertices.clear();
-        indices.clear();
-        vertices.reserve(static_cast<size_t>(width) * height * 7);
-        indices.reserve(static_cast<size_t>(width - 1) * (height - 1) * 6);
-
-        const float invWidth = (width > 1) ? 1.0f / static_cast<float>(width - 1) : 0.0f;
-        const float invHeight = (height > 1) ? 1.0f / static_cast<float>(height - 1) : 0.0f;
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                float elevation = elevationData[static_cast<size_t>(y) * width + x];
-
-                const float mirroredX = static_cast<float>((width - 1) - x);
-                vertices.push_back(mirroredX);
-                vertices.push_back(static_cast<float>(y));
-                vertices.push_back(elevation * scaleZ);
-                vertices.push_back(elevation); // Store raw elevation in w-component (or 4th attrib)
-
-                std::array<float, 3> color{0.8f, 0.8f, 0.8f};
-
-                // fill color info with black, for now,
-                vertices.push_back(0.0f);
-                vertices.push_back(0.0f);
-                vertices.push_back(0.0f);
-            }
-        }
-
-        for (int y = 0; y < height - 1; y++) {
-            for (int x = 0; x < width - 1; x++) {
-                int topLeft = y * width + x;
-                int topRight = topLeft + 1;
-                int bottomLeft = (y + 1) * width + x;
-                int bottomRight = bottomLeft + 1;
-
-                indices.push_back(topLeft);
-                indices.push_back(bottomLeft);
-                indices.push_back(topRight);
-
-                indices.push_back(topRight);
-                indices.push_back(bottomLeft);
-                indices.push_back(bottomRight);
-            }
-        }
-
-        std::cout << "Generated " << vertices.size() / 7 << " vertices and " << indices.size() / 3 << " triangles"
-                  << std::endl;
-    }
-
-    /**
-     * @brief (STATIC) Updates existing vertex Z/W components from new elevation data.
-     * Your app calls this.
-     */
-    static void updateMeshElevations(const std::vector<float>& elevationData, int width, int height,
-                                     std::vector<float>& vertices) {
-        float scaleZ = 1000.f / 30.325f;
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                size_t vertexIndex = (static_cast<size_t>(y) * width + x) * 7;
-                float elevation = elevationData[static_cast<size_t>(y) * width + x];
-
-                // Ensure vertices vector is large enough (should be)
-                if (vertexIndex + 3 < vertices.size()) {
-                    vertices[vertexIndex + 2] = elevation * scaleZ;
-                    vertices[vertexIndex + 3] = elevation;
-                }
-            }
-        }
-    }
-
-    static void updateMeshColors(const std::vector<std::array<float, 3>>& colorData, int width, int height,
-                                 std::vector<float>& vertices) {
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                size_t vertexIndex = (static_cast<size_t>(y) * width + x) * 7;
-
-                // Ensure vertices vector is large enough (should be)
-                if (vertexIndex + 6 < vertices.size()) {
-                    const auto& color = colorData[static_cast<size_t>(y) * width + x];
-                    vertices[vertexIndex + 4] = color[0];
-                    vertices[vertexIndex + 5] = color[1];
-                    vertices[vertexIndex + 6] = color[2];
-                }
-            }
-        }
     }
 
   private:

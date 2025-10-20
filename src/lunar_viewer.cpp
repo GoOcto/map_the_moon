@@ -347,8 +347,50 @@ class LunarViewerApp : public Application {
 
         mesh->vertices.clear();
         mesh->indices.clear();
-        TerrainLoader::generateMesh(elevationData_, width_, height_, mesh->vertices, mesh->indices);
-        TerrainLoader::updateMeshColors(colorData, width_, height_, mesh->vertices);
+        std::cout << "Generating mesh..." << std::endl;
+
+        const float scaleZ = 1000.f / 30.325f;
+        const size_t vertexCount = static_cast<size_t>(width_) * height_;
+
+        mesh->vertices.reserve(vertexCount * 7);
+        mesh->indices.reserve(static_cast<size_t>(width_ - 1) * (height_ - 1) * 6);
+
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < width_; ++x) {
+                const size_t dataIndex = static_cast<size_t>(y) * width_ + x;
+                const float elevation = elevationData_[dataIndex];
+                const float mirroredX = static_cast<float>((width_ - 1) - x);
+                const auto& color = colorData[dataIndex];
+
+                mesh->vertices.push_back(mirroredX);
+                mesh->vertices.push_back(static_cast<float>(y));
+                mesh->vertices.push_back(elevation * scaleZ);
+                mesh->vertices.push_back(elevation);
+                mesh->vertices.push_back(color[0]);
+                mesh->vertices.push_back(color[1]);
+                mesh->vertices.push_back(color[2]);
+            }
+        }
+
+        for (int y = 0; y < height_ - 1; ++y) {
+            for (int x = 0; x < width_ - 1; ++x) {
+                const unsigned int topLeft = static_cast<unsigned int>(y * width_ + x);
+                const unsigned int topRight = topLeft + 1;
+                const unsigned int bottomLeft = static_cast<unsigned int>((y + 1) * width_ + x);
+                const unsigned int bottomRight = bottomLeft + 1;
+
+                mesh->indices.push_back(topLeft);
+                mesh->indices.push_back(bottomLeft);
+                mesh->indices.push_back(topRight);
+
+                mesh->indices.push_back(topRight);
+                mesh->indices.push_back(bottomLeft);
+                mesh->indices.push_back(bottomRight);
+            }
+        }
+
+        std::cout << "Generated " << mesh->vertices.size() / 7 << " vertices and "
+                  << mesh->indices.size() / 3 << " triangles" << std::endl;
 
         std::cout << "Initial elevation range: " << minElevation_ << " to " << maxElevation_ << " meters" << std::endl;
     }
@@ -378,8 +420,27 @@ class LunarViewerApp : public Application {
         auto newColorData = m_colorSampler->sampleColorsForTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_,
                                                                    height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
 
-        TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
-        TerrainLoader::updateMeshColors(newColorData, width_, height_, mesh->vertices);
+        const float scaleZ = 1000.f / 30.325f;
+
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < width_; ++x) {
+                const size_t dataIndex = static_cast<size_t>(y) * width_ + x;
+                const size_t vertexIndex = dataIndex * 7;
+
+                if (vertexIndex + 6 >= mesh->vertices.size()) {
+                    continue;
+                }
+
+                const float elevation = elevationData_[dataIndex];
+                const auto& color = newColorData[dataIndex];
+
+                mesh->vertices[vertexIndex + 2] = elevation * scaleZ;
+                mesh->vertices[vertexIndex + 3] = elevation;
+                mesh->vertices[vertexIndex + 4] = color[0];
+                mesh->vertices[vertexIndex + 5] = color[1];
+                mesh->vertices[vertexIndex + 6] = color[2];
+            }
+        }
         mesh->updateVertexData();
     }
 
