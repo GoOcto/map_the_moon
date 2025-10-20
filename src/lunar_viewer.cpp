@@ -10,6 +10,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "application.hpp"
+#include "color_map_sampler.hpp"
 #include "font_overlay.hpp"
 #include "mesh.hpp"
 #include "shader.hpp"
@@ -22,6 +23,7 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -173,7 +175,7 @@ class LunarViewerApp : public Application {
     LunarViewerApp(const char* windowTitle, std::string dataRoot)
         : Application(windowTitle), dataRoot_(std::move(dataRoot)) // Store dataRoot
     {
-        ColorMapSampler::setDataRoot(dataRoot_);
+        m_colorSampler = std::make_unique<ColorMapSampler>(dataRoot_);
         m_terrain = std::make_unique<TerrainLoader>(dataRoot_);
     }
 
@@ -241,6 +243,7 @@ class LunarViewerApp : public Application {
         glUniform1f(minElevLoc_, kColorMin);
         glUniform1f(maxElevLoc_, kColorMax);
         glUniform3fv(lightDirLoc_, 1, glm::value_ptr(lightDirection_));
+        glUniform1f(colorModeLoc_, colorMode_);
 
         if (curvatureLoc_ != -1) {
             glUniform1f(curvatureLoc_, curvaturePerUnit_);
@@ -267,10 +270,12 @@ class LunarViewerApp : public Application {
             switch (key) {
 
             case GLFW_KEY_1:
-                glUniform1f(colorModeLoc_, 0.0f);
+                //glUniform1f(colorModeLoc_, 0.0f);
+                colorMode_ = 0.0f;
                 break;
             case GLFW_KEY_2:
-                glUniform1f(colorModeLoc_, 1.0f);
+                //glUniform1f(colorModeLoc_, 1.0f);
+                colorMode_ = 1.0f;
                 break;
 
             case GLFW_KEY_KP_4:
@@ -337,8 +342,8 @@ class LunarViewerApp : public Application {
         maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
 
         updateCurvatureAmount();
-        auto colorData = ColorMapSampler::sampleColorsForTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_,
-                                                                 height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
+        auto colorData = m_colorSampler->sampleColorsForTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_,
+                                                                height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
 
         mesh->vertices.clear();
         mesh->indices.clear();
@@ -370,8 +375,8 @@ class LunarViewerApp : public Application {
         }
 
         updateCurvatureAmount();
-        auto newColorData = ColorMapSampler::sampleColorsForTerrain(
-            povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
+        auto newColorData = m_colorSampler->sampleColorsForTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_,
+                                                                   height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
 
         TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
         TerrainLoader::updateMeshColors(newColorData, width_, height_, mesh->vertices);
@@ -481,6 +486,7 @@ class LunarViewerApp : public Application {
         return oss.str();
     }
 
+    std::unique_ptr<ColorMapSampler> m_colorSampler;
     std::unique_ptr<TerrainLoader> m_terrain;
     std::string dataRoot_;
     std::vector<float> elevationData_;
@@ -510,6 +516,7 @@ class LunarViewerApp : public Application {
     GLint lightDirLoc_ = -1;
     GLint curvatureLoc_ = -1;
     GLint meshCenterLoc_ = -1;
+    float colorMode_ = 0.0f; // 0.0 for relief coloring, 1.0 for vertex color (from colormap)
     float curvaturePerUnit_ = 0.0f;
     float totalLonSpanDegrees_ = 0.0f;
     float totalLatSpanDegrees_ = 0.0f;
