@@ -107,6 +107,7 @@ void main() {
 
 const char* kFragmentShaderSource = R"(
 #version 330 core
+
 in float elevation;
 in vec3 FragPos;
 in vec3 WorldPos;
@@ -116,6 +117,7 @@ out vec4 FragColor;
 uniform float minElevation;
 uniform float maxElevation;
 uniform vec3 lightDirection;
+uniform float colorMode; // 0.0 for relief coloring, 1.0 for vertex color (from colormap)
 
 vec3 getTerrainColor(float normalized) {
     vec3 colors[5];
@@ -142,7 +144,7 @@ void main() {
     normalized = clamp(normalized, 0.0, 1.0);
 
     vec3 fallbackColor = getTerrainColor(normalized);
-    vec3 baseColor = mix(fallbackColor, vertexColor, 0.85);
+    vec3 baseColor = mix(vertexColor, fallbackColor, colorMode);
 
     vec3 dFdxPos = dFdx(WorldPos);
     vec3 dFdyPos = dFdy(WorldPos);
@@ -193,6 +195,7 @@ class LunarViewerApp : public Application {
         minElevLoc_ = shader->getUniformLocation("minElevation");
         maxElevLoc_ = shader->getUniformLocation("maxElevation");
         lightDirLoc_ = shader->getUniformLocation("lightDirection");
+        colorModeLoc_ = shader->getUniformLocation("colorMode");
         curvatureLoc_ = shader->getUniformLocation("uCurvature");
         meshCenterLoc_ = shader->getUniformLocation("uMeshCenter");
 
@@ -228,20 +231,17 @@ class LunarViewerApp : public Application {
         const glm::mat4 view = getViewMatrix();
         const glm::mat4 projection = getProjectionMatrix();
 
-        FontOverlay fpsOverlay_;
-        glm::vec2 screenSize_{static_cast<float>(Window::DEFAULT_WIDTH), static_cast<float>(Window::DEFAULT_HEIGHT)};
-        std::string overlayStatusLine_;
-
         glUniformMatrix4fv(modelLoc_, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc_, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projectionLoc_, 1, GL_FALSE, glm::value_ptr(projection));
 
-        float kColorMin = -10000.0f / samplingStep_;
-        float kColorMax = 10000.0f / samplingStep_;
+        float kColorMin = -10.0f / samplingStep_;
+        float kColorMax = 10.0f / samplingStep_;
 
         glUniform1f(minElevLoc_, kColorMin);
         glUniform1f(maxElevLoc_, kColorMax);
         glUniform3fv(lightDirLoc_, 1, glm::value_ptr(lightDirection_));
+
         if (curvatureLoc_ != -1) {
             glUniform1f(curvatureLoc_, curvaturePerUnit_);
         }
@@ -265,6 +265,13 @@ class LunarViewerApp : public Application {
 
         if (action == GLFW_PRESS || action == GLFW_REPEAT) {
             switch (key) {
+
+            case GLFW_KEY_1:
+                glUniform1f(colorModeLoc_, 0.0f);
+                break;
+            case GLFW_KEY_2:
+                glUniform1f(colorModeLoc_, 1.0f);
+                break;
 
             case GLFW_KEY_KP_4:
                 adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
@@ -451,8 +458,7 @@ class LunarViewerApp : public Application {
             remember = formatted;
             std::cout << formatted << std::endl;
         }
-        // fpsOverlay_.setInfoLines({formatted});
-        // fpsOverlay_.update(12);
+        // fpsOverlay_.setInfoLines({formatted}); // this used to be a way to put text on the screen, never worked, TODO
     }
 
     std::string buildStatusString() const {
@@ -500,6 +506,7 @@ class LunarViewerApp : public Application {
     GLint projectionLoc_ = -1;
     GLint minElevLoc_ = -1;
     GLint maxElevLoc_ = -1;
+    GLint colorModeLoc_ = -1;
     GLint lightDirLoc_ = -1;
     GLint curvatureLoc_ = -1;
     GLint meshCenterLoc_ = -1;
