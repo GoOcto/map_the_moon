@@ -3,18 +3,18 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 #ifdef _WIN32
 #define NOMINMAX
-#include <windows.h>
 #include <wincodec.h>
+#include <windows.h>
 #include <wrl/client.h>
 #endif
 
@@ -26,14 +26,14 @@ int gHeight = 0;
 std::vector<std::uint8_t> gColorData;
 std::filesystem::path gDataRoot{"."};
 
-constexpr const char* kColorMapPath = ".data/color/colormap.jpg";
+constexpr const char *kColorMapPath = ".data/color/colormap.jpg";
 constexpr UINT kMaxDimension = 4096;
 constexpr size_t kChannels = 3;
 
 size_t pixelIndex(int x, int y) {
     return (static_cast<size_t>(y) * static_cast<size_t>(gWidth) + static_cast<size_t>(x)) * kChannels;
 }
-}
+} // namespace
 
 void ColorMapSampler::setDataRoot(std::string dataRoot) {
     if (dataRoot.empty()) {
@@ -51,7 +51,6 @@ bool ColorMapSampler::ensureLoaded() {
             gLoaded = false;
             return;
         }
-
 
 #ifdef _WIN32
         struct CoUninitGuard {
@@ -90,8 +89,8 @@ bool ColorMapSampler::ensureLoaded() {
         hr = factory->CreateDecoderFromFilename(widePath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad,
                                                 &decoder);
         if (FAILED(hr)) {
-            std::cerr << "Failed to decode color map: " << path.string() << " HRESULT=0x" << std::hex << hr
-                      << std::dec << std::endl;
+            std::cerr << "Failed to decode color map: " << path.string() << " HRESULT=0x" << std::hex << hr << std::dec
+                      << std::endl;
             gLoaded = false;
             return;
         }
@@ -99,8 +98,7 @@ bool ColorMapSampler::ensureLoaded() {
         Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
         hr = decoder->GetFrame(0, &frame);
         if (FAILED(hr)) {
-            std::cerr << "Failed to obtain frame from color map. HRESULT=0x" << std::hex << hr << std::dec
-                      << std::endl;
+            std::cerr << "Failed to obtain frame from color map. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
             gLoaded = false;
             return;
         }
@@ -128,14 +126,12 @@ bool ColorMapSampler::ensureLoaded() {
         if (targetWidth > kMaxDimension || targetHeight > kMaxDimension) {
             if (targetWidth >= targetHeight) {
                 targetWidth = kMaxDimension;
-                targetHeight = static_cast<UINT>(std::max(1.0,
-                                                          std::round(static_cast<double>(height) * targetWidth /
-                                                                     static_cast<double>(width))));
+                targetHeight = static_cast<UINT>(
+                    std::max(1.0, std::round(static_cast<double>(height) * targetWidth / static_cast<double>(width))));
             } else {
                 targetHeight = kMaxDimension;
-                targetWidth = static_cast<UINT>(std::max(1.0,
-                                                         std::round(static_cast<double>(width) * targetHeight /
-                                                                    static_cast<double>(height))));
+                targetWidth = static_cast<UINT>(
+                    std::max(1.0, std::round(static_cast<double>(width) * targetHeight / static_cast<double>(height))));
             }
         }
 
@@ -165,8 +161,7 @@ bool ColorMapSampler::ensureLoaded() {
         Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
         hr = factory->CreateFormatConverter(&converter);
         if (FAILED(hr)) {
-            std::cerr << "Failed to create WIC format converter. HRESULT=0x" << std::hex << hr << std::dec
-                      << std::endl;
+            std::cerr << "Failed to create WIC format converter. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
             gLoaded = false;
             return;
         }
@@ -202,7 +197,7 @@ bool ColorMapSampler::ensureLoaded() {
         gHeight = static_cast<int>(height);
         gColorData.resize(static_cast<size_t>(gWidth) * static_cast<size_t>(gHeight) * kChannels);
         for (UINT y = 0; y < height; ++y) {
-            const BYTE* srcRow = buffer.data() + static_cast<size_t>(y) * stride;
+            const BYTE *srcRow = buffer.data() + static_cast<size_t>(y) * stride;
             for (UINT x = 0; x < width; ++x) {
                 const size_t srcIndex = static_cast<size_t>(x) * kChannels;
                 const size_t dstIndex = pixelIndex(static_cast<int>(x), static_cast<int>(y));
@@ -221,6 +216,58 @@ bool ColorMapSampler::ensureLoaded() {
     });
 
     return gLoaded;
+}
+
+std::vector<std::array<float, 3>> ColorMapSampler::sampleColorsForTerrain(double povLatDegrees, double povLonDegrees,
+                                                                          int width, int height, float totalLatSpan,
+                                                                          float totalLonSpan) {
+    std::vector<std::array<float, 3>> colorData;
+
+    float latN = 55.0f;
+    float latS = -55.0f;
+
+    // Calculate the coordinates of the top-left corner (x=0, y=0)
+    float latTop = (float)povLatDegrees + (totalLatSpan / 2.0f);
+    float lonLeft = (float)povLonDegrees - (totalLonSpan / 2.0f);
+
+    // Calculate how many degrees each mesh pixel represents
+    float degPerPixelY = totalLatSpan / (float)height;
+    float degPerPixelX = totalLonSpan / (float)width;
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+
+            // Calculate lat/lon for this specific (x, y) vertex
+            float lat = latTop - (y * degPerPixelY);
+            float lon = lonLeft + (x * degPerPixelX);
+
+            if (x == 0 && y == 0) {
+                std::cout << "  Top-left lat,lon: (" << lat << ", " << lon << ")" << std::endl;
+            }
+
+            float u = (lon + 180.0f) / 360.0f;
+            float v = (latN - lat) / (latN - latS);
+
+            // wrap u
+            if (u >= 1.0f)
+                u -= 1.0f;
+            if (u < 0.0f)
+                u += 1.0f;
+
+            // for values outside the colormap lat range, just use gray
+            auto color = std::array<float, 3>{0.7f, 0.7f, 0.7f};
+            if (v >= 1.0f)
+                color = {0.7f, 0.7f, 0.7f};
+            else if (v < 0.0f)
+                color = {0.7f, 0.7f, 0.7f};
+            else
+                color = sample(u, v);
+
+            colorData.push_back(color);
+        }
+    }
+
+    return colorData;
 }
 
 std::array<float, 3> ColorMapSampler::sample(float u, float v) {
@@ -268,9 +315,7 @@ std::array<float, 3> ColorMapSampler::sample(float u, float v) {
     std::array<float, 3> c01 = fetchColor(idx01);
     std::array<float, 3> c11 = fetchColor(idx11);
 
-    const auto lerp = [](float a, float b, float t) {
-        return a + (b - a) * t;
-    };
+    const auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
 
     std::array<float, 3> result{};
     for (int i = 0; i < 3; ++i) {

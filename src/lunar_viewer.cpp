@@ -330,10 +330,13 @@ class LunarViewerApp : public Application {
         maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
 
         updateCurvatureAmount();
+        auto colorData = ColorMapSampler::sampleColorsForTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_,
+                                                                 height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
 
         mesh->vertices.clear();
         mesh->indices.clear();
         TerrainLoader::generateMesh(elevationData_, width_, height_, mesh->vertices, mesh->indices);
+        TerrainLoader::updateMeshColors(colorData, width_, height_, mesh->vertices);
 
         std::cout << "Initial elevation range: " << minElevation_ << " to " << maxElevation_ << " meters" << std::endl;
     }
@@ -360,8 +363,11 @@ class LunarViewerApp : public Application {
         }
 
         updateCurvatureAmount();
+        auto newColorData = ColorMapSampler::sampleColorsForTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_,
+                                                                 height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
 
         TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
+        TerrainLoader::updateMeshColors(newColorData, width_, height_, mesh->vertices);
         mesh->updateVertexData();
     }
 
@@ -434,6 +440,8 @@ class LunarViewerApp : public Application {
         }
 
         curvaturePerUnit_ = std::max(curvatureLon, curvatureLat);
+        totalLonSpanDegrees_ = lonSpanDegrees;
+        totalLatSpanDegrees_ = latSpanDegrees;
     }
 
     void updateOverlayStatus() {
@@ -496,6 +504,8 @@ class LunarViewerApp : public Application {
     GLint curvatureLoc_ = -1;
     GLint meshCenterLoc_ = -1;
     float curvaturePerUnit_ = 0.0f;
+    float totalLonSpanDegrees_ = 0.0f;
+    float totalLatSpanDegrees_ = 0.0f;
 };
 
 int main(int argc, char **argv) {

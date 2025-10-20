@@ -63,12 +63,9 @@ class TerrainLoader {
             doScrollLoad(povLatDegrees, povLonDegrees, width, height, steps, *newTile);
         }
 
-        // Return a copy of the final elevation data, converted to meters
-        std::vector<float> dataInMeters = m_elevationData;
-        for (float &val : dataInMeters) {
-            val *= 1000.0f; // Convert km to meters
-        }
-        return dataInMeters;
+        // Return a copy of the final elevation data
+        std::vector<float> dataInKM = m_elevationData;
+        return dataInKM;
     }
 
     /**
@@ -79,14 +76,13 @@ class TerrainLoader {
                              std::vector<float> &vertices, std::vector<unsigned int> &indices) {
         std::cout << "Generating mesh..." << std::endl;
 
-        float scaleZ = 1.f / 30.325f; //  30.325km/degree at the equator or 30.325/512km per sample, because grid
-                                      //  samples are 1 unit apart in X/Y
+        float scaleZ = 1000.f / 30.325f; //  30.325km/degree at the equator or 30.325/512km per sample, because grid
+                                         //  samples are 1 unit apart in X/Y
         vertices.clear();
         indices.clear();
         vertices.reserve(static_cast<size_t>(width) * height * 7);
         indices.reserve(static_cast<size_t>(width - 1) * (height - 1) * 6);
 
-        const bool hasColorMap = ColorMapSampler::ensureLoaded();
         const float invWidth = (width > 1) ? 1.0f / static_cast<float>(width - 1) : 0.0f;
         const float invHeight = (height > 1) ? 1.0f / static_cast<float>(height - 1) : 0.0f;
 
@@ -101,15 +97,11 @@ class TerrainLoader {
                 vertices.push_back(elevation); // Store raw elevation in w-component (or 4th attrib)
 
                 std::array<float, 3> color{0.8f, 0.8f, 0.8f};
-                if (hasColorMap) {
-                    const float u = static_cast<float>(x) * invWidth;
-                    const float v = static_cast<float>(y) * invHeight;
-                    color = ColorMapSampler::sample(u, v);
-                }
 
-                vertices.push_back(color[0]);
-                vertices.push_back(color[1]);
-                vertices.push_back(color[2]);
+                // fill color info with black, for now,
+                vertices.push_back(0.0f);
+                vertices.push_back(0.0f);
+                vertices.push_back(0.0f);
             }
         }
 
@@ -140,7 +132,7 @@ class TerrainLoader {
      */
     static void updateMeshElevations(const std::vector<float> &elevationData, int width, int height,
                                      std::vector<float> &vertices) {
-        float scaleZ = 1.f / 30.325f;
+        float scaleZ = 1000.f / 30.325f;
 
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
@@ -151,6 +143,23 @@ class TerrainLoader {
                 if (vertexIndex + 3 < vertices.size()) {
                     vertices[vertexIndex + 2] = elevation * scaleZ;
                     vertices[vertexIndex + 3] = elevation;
+                }
+            }
+        }
+    }
+
+    static void updateMeshColors(const std::vector<std::array<float, 3>> &colorData, int width, int height,
+                                 std::vector<float> &vertices) {
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                size_t vertexIndex = (static_cast<size_t>(y) * width + x) * 7;
+
+                // Ensure vertices vector is large enough (should be)
+                if (vertexIndex + 6 < vertices.size()) {
+                    const auto &color = colorData[static_cast<size_t>(y) * width + x];
+                    vertices[vertexIndex + 4] = color[0];
+                    vertices[vertexIndex + 5] = color[1];
+                    vertices[vertexIndex + 6] = color[2];
                 }
             }
         }
