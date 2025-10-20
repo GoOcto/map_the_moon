@@ -50,7 +50,7 @@ double wrapLongitudeDegrees(double lonDegrees) {
     return wrapped;
 }
 
-const char* kVertexShaderSource = R"(
+const char *kVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in float aElevation;
@@ -99,7 +99,7 @@ void main() {
 }
 )";
 
-const char* kFragmentShaderSource = R"(
+const char *kFragmentShaderSource = R"(
 #version 330 core
 in float elevation;
 in vec3 FragPos;
@@ -158,15 +158,14 @@ void main() {
 } // namespace
 
 class LunarViewerApp : public Application {
-public:
-    LunarViewerApp(const char* windowTitle, std::string dataRoot)
-        : Application(windowTitle), 
-          dataRoot_(std::move(dataRoot)) // Store dataRoot
+  public:
+    LunarViewerApp(const char *windowTitle, std::string dataRoot)
+        : Application(windowTitle), dataRoot_(std::move(dataRoot)) // Store dataRoot
     {
         m_terrain = std::make_unique<TerrainLoader>(dataRoot_);
     }
 
-protected:
+  protected:
     void setup() override {
         setupCallbacks();
 
@@ -187,10 +186,8 @@ protected:
         curvatureLoc_ = shader->getUniformLocation("uCurvature");
         meshCenterLoc_ = shader->getUniformLocation("uMeshCenter");
 
-        lightDirection_ = glm::normalize(glm::vec3(
-            std::cos(glm::radians(kLightAngleDegrees)),
-            0.0f,
-            std::sin(glm::radians(kLightAngleDegrees))));
+        lightDirection_ = glm::normalize(
+            glm::vec3(std::cos(glm::radians(kLightAngleDegrees)), 0.0f, std::sin(glm::radians(kLightAngleDegrees))));
 
         centerCamera();
     }
@@ -236,7 +233,7 @@ protected:
         mesh->draw();
     }
 
-    void keyCallback(GLFWwindow* w, int key, int scancode, int action, int mods) override {
+    void keyCallback(GLFWwindow *w, int key, int scancode, int action, int mods) override {
         Application::keyCallback(w, key, scancode, action, mods);
 
         if (action == GLFW_PRESS) {
@@ -248,54 +245,56 @@ protected:
         if (action == GLFW_PRESS || action == GLFW_REPEAT) {
             switch (key) {
 
-                case GLFW_KEY_KP_4:
-                    adjustLongitude(kLongitudeStepDegrees * samplingStep_);
-                    break;
-                case GLFW_KEY_KP_6:
-                    adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
-                    break;
-                case GLFW_KEY_KP_8:
-                    adjustLatitude(kLatitudeStepDegrees * samplingStep_);
-                    break;
-                case GLFW_KEY_KP_2:
-                    adjustLatitude(-kLatitudeStepDegrees * samplingStep_);
-                    break;
-                case GLFW_KEY_KP_5:
-                    resetViewPosition();
-                    break;
-                case GLFW_KEY_KP_ADD:
-                    samplingStep_ += 1;
-                    if (samplingStep_ > 50) samplingStep_ = 50;
-                    needsReload_ = true;
-                    break;
-                case GLFW_KEY_KP_SUBTRACT:
-                    samplingStep_ -= 1;
-                    if (samplingStep_ < 1) samplingStep_ = 1;
-                    needsReload_ = true;
-                    break;
-                default:
-                    break;
+            case GLFW_KEY_KP_4:
+                adjustLongitude(kLongitudeStepDegrees * samplingStep_);
+                break;
+            case GLFW_KEY_KP_6:
+                adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
+                break;
+            case GLFW_KEY_KP_8:
+                adjustLatitude(kLatitudeStepDegrees * samplingStep_);
+                break;
+            case GLFW_KEY_KP_2:
+                adjustLatitude(-kLatitudeStepDegrees * samplingStep_);
+                break;
+            case GLFW_KEY_KP_5:
+                resetViewPosition();
+                break;
+            case GLFW_KEY_KP_ADD:
+                samplingStep_ += 1;
+                if (samplingStep_ > 50)
+                    samplingStep_ = 50;
+                needsReload_ = true;
+                break;
+            case GLFW_KEY_KP_SUBTRACT:
+                samplingStep_ -= 1;
+                if (samplingStep_ < 1)
+                    samplingStep_ = 1;
+                needsReload_ = true;
+                break;
+            default:
+                break;
             }
         }
     }
 
-    void mouseCallback(GLFWwindow* w, double xpos, double ypos) override {
+    void mouseCallback(GLFWwindow *w, double xpos, double ypos) override {
     }
 
-    void scrollCallback(GLFWwindow* w, double xoffset, double yoffset) override {
+    void scrollCallback(GLFWwindow *w, double xoffset, double yoffset) override {
     }
 
-private:
+  private:
     void loadTerrain() {
-        elevationData_ = m_terrain->loadOrUpdateTerrain(
-            povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, samplingStep_);
-        
+        elevationData_ =
+            m_terrain->loadOrUpdateTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, samplingStep_);
+
         if (elevationData_.empty()) {
             throw std::runtime_error("Failed to load terrain data");
         }
 
         if (samplingStep_ > 1) {
-            for (float& val : elevationData_) {
+            for (float &val : elevationData_) {
                 val *= 1.0f / static_cast<float>(samplingStep_);
             }
         }
@@ -316,9 +315,9 @@ private:
         needsReload_ = false;
 
         std::cout << "Reloading terrain data..." << std::endl;
-        
-        auto newData = m_terrain->loadOrUpdateTerrain(
-            povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, samplingStep_);
+
+        auto newData =
+            m_terrain->loadOrUpdateTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, samplingStep_);
 
         if (newData.empty()) {
             std::cerr << "Failed to reload data, keeping previous terrain" << std::endl;
@@ -329,7 +328,7 @@ private:
         minElevation_ = *std::min_element(elevationData_.begin(), elevationData_.end());
         maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
 
-        for (float& val : elevationData_) {
+        for (float &val : elevationData_) {
             val *= 1.0f / static_cast<float>(samplingStep_);
         }
 
@@ -340,10 +339,7 @@ private:
     }
 
     void centerCamera() {
-        camera->target = glm::vec3(
-            static_cast<float>(width_) / 2.0f,
-            static_cast<float>(height_) / 2.0f,
-            0.0f);
+        camera->target = glm::vec3(static_cast<float>(width_) / 2.0f, static_cast<float>(height_) / 2.0f, 0.0f);
         camera->distance = 600.0f;
         camera->yaw = 90.0f;
         camera->pitch = 60.0f;
@@ -351,8 +347,7 @@ private:
     }
 
     void adjustLatitude(double deltaDegrees) {
-        const double newLat = std::clamp(
-            povLatitudeDegrees_ + deltaDegrees, kMinLatitudeDegrees, kMaxLatitudeDegrees);
+        const double newLat = std::clamp(povLatitudeDegrees_ + deltaDegrees, kMinLatitudeDegrees, kMaxLatitudeDegrees);
         if (std::fabs(newLat - povLatitudeDegrees_) > 1e-9) {
             povLatitudeDegrees_ = newLat;
             needsReload_ = true;
@@ -377,12 +372,12 @@ private:
     }
 
     void logCurrentCoordinates() const {
-        std::cout << "View centered at latitude " << povLatitudeDegrees_
-                  << " deg, longitude " << povLongitudeDegrees_ << " deg" << std::endl;
+        std::cout << "View centered at latitude " << povLatitudeDegrees_ << " deg, longitude " << povLongitudeDegrees_
+                  << " deg" << std::endl;
     }
 
     void updateCurvatureAmount() {
-        const terrain::TileMetadata* tile = terrain::findTile(povLatitudeDegrees_, povLongitudeDegrees_);
+        const terrain::TileMetadata *tile = terrain::findTile(povLatitudeDegrees_, povLongitudeDegrees_);
         float degreesPerPixelLon = 45.0f / static_cast<float>(terrain::TILE_WIDTH);
         float degreesPerPixelLat = 30.0f / static_cast<float>(terrain::TILE_HEIGHT);
         if (tile) {
@@ -417,7 +412,7 @@ private:
     std::unique_ptr<TerrainLoader> m_terrain;
     std::string dataRoot_;
     std::vector<float> elevationData_;
-    
+
     int width_ = 1024;
     int height_ = 1024;
 
@@ -442,14 +437,14 @@ private:
     float curvaturePerUnit_ = 0.0f;
 };
 
-int main(int argc, char** argv) {
-    const char* defaultDataRoot = ".data/proc";
+int main(int argc, char **argv) {
+    const char *defaultDataRoot = ".data/proc";
     std::string dataRoot = (argc > 1) ? argv[1] : defaultDataRoot;
 
     try {
         LunarViewerApp app("Lunar Surface Viewer", std::move(dataRoot));
         app.run();
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
