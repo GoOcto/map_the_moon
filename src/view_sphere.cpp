@@ -1,10 +1,10 @@
 #include <GL/glew.h>
 
 #include "application.hpp"
-#include "window.hpp"
+#include "font_overlay.hpp"
 #include "shader.hpp"
 #include "sphere.hpp"
-#include "font_overlay.hpp"
+#include "window.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -13,15 +13,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdlib>
 #include <cstddef>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <random>
-#include <vector>
 #include <system_error>
-
+#include <vector>
 
 namespace {
 
@@ -31,7 +30,7 @@ constexpr float kMinCameraDistance = 1750.0f;
 constexpr float kMaxCameraDistance = 20000.0f;
 constexpr float kScrollMinSpeed = 1.0f;
 constexpr float kScrollMaxSpeed = 2000.0f;
-constexpr float kOrbitMinSpeedDegreesPerSecond =  0.2f;
+constexpr float kOrbitMinSpeedDegreesPerSecond = 0.2f;
 constexpr float kOrbitMaxSpeedDegreesPerSecond = 90.0f;
 constexpr float kDistanceChangePerSecond = 1500.0f;
 constexpr float kPitchLimitDegrees = 89.0f;
@@ -39,7 +38,7 @@ constexpr std::size_t kMaxTerrainTilesCached = 256;
 
 // --- SHADERS ---
 
-const char* kVertexShaderSource = R"(
+const char *kVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
@@ -62,7 +61,7 @@ void main() {
 }
 )";
 
-const char* kFragmentShaderSource = R"(
+const char *kFragmentShaderSource = R"(
 #version 330 core
 in vec3 vNormal;
 in vec3 vFragPos;
@@ -89,21 +88,20 @@ void main() {
 }
 )";
 
-}  // namespace
+} // namespace
 
 class SphereViewerApp : public Application {
-public:
+  public:
     SphereViewerApp() : Application("Sphere Tile Viewer") {
         camera->target = glm::vec3(0.0f);
         camera->distance = 6000.0f;
         camera->yaw = -90.0f;
         camera->pitch = 20.0f;
         camera->updateVectors();
-        screenSize_ = glm::vec2(static_cast<float>(window->currentWidth),
-                                static_cast<float>(window->currentHeight));
+        screenSize_ = glm::vec2(static_cast<float>(window->currentWidth), static_cast<float>(window->currentHeight));
     }
 
-protected:
+  protected:
     void setup() override {
         setupCallbacks();
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -128,7 +126,6 @@ protected:
 
         fpsOverlay_.initialize("fonts/ProggyClean.ttf");
         fpsOverlay_.setScreenSize(screenSize_);
-
     }
 
     void update(float deltaTime) override {
@@ -141,7 +138,7 @@ protected:
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
-        
+
         shader->use();
 
         const glm::mat4 model(1.0f);
@@ -164,10 +161,9 @@ protected:
         sphere_->draw();
 
         fpsOverlay_.render();
-
     }
 
-    void keyCallback(GLFWwindow* w, int key, int scancode, int action, int mods) override {
+    void keyCallback(GLFWwindow *w, int key, int scancode, int action, int mods) override {
         if (key == GLFW_KEY_TAB && action == GLFW_PRESS) {
             wireframeEnabled_ = !wireframeEnabled_;
             wireframeMode = wireframeEnabled_;
@@ -178,24 +174,22 @@ protected:
         Application::keyCallback(w, key, scancode, action, mods);
     }
 
-    void framebufferSizeCallback(GLFWwindow* w, int width, int height) override {
+    void framebufferSizeCallback(GLFWwindow *w, int width, int height) override {
         Application::framebufferSizeCallback(w, width, height);
         screenSize_.x = static_cast<float>(std::max(width, 1));
         screenSize_.y = static_cast<float>(std::max(height, 1));
-    fpsOverlay_.setScreenSize(screenSize_);
-    // We don't need to rebuild geometry here, the projection matrix will handle it.
+        fpsOverlay_.setScreenSize(screenSize_);
+        // We don't need to rebuild geometry here, the projection matrix will handle it.
     }
 
-    void scrollCallback(GLFWwindow* /*w*/, double /*xoffset*/, double yoffset) override {
+    void scrollCallback(GLFWwindow * /*w*/, double /*xoffset*/, double yoffset) override {
         const float speed = computeScrollZoomSpeed();
-        camera->distance = std::clamp(
-            camera->distance - static_cast<float>(yoffset) * speed,
-            kMinCameraDistance,
-            kMaxCameraDistance);
+        camera->distance =
+            std::clamp(camera->distance - static_cast<float>(yoffset) * speed, kMinCameraDistance, kMaxCameraDistance);
         camera->updateVectors();
     }
 
-    void mouseCallback(GLFWwindow* /*w*/, double xpos, double ypos) override {
+    void mouseCallback(GLFWwindow * /*w*/, double xpos, double ypos) override {
         glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
 
         if (input->leftMousePressed) {
@@ -228,14 +222,15 @@ protected:
         std::cout << "==============================\n" << std::endl;
     }
 
-private:
+  private:
     std::string locateTerrainDataRoot() const {
         std::vector<std::filesystem::path> candidates;
-        //candidates.emplace_back(".data/proc");  // currently out because it is very inefficient
+        // candidates.emplace_back(".data/proc");  // currently out because it is very inefficient
 
-        for (const auto& candidate : candidates) {
+        for (const auto &candidate : candidates) {
             std::error_code ec;
-            if (!candidate.empty() && std::filesystem::exists(candidate, ec) && std::filesystem::is_directory(candidate, ec)) {
+            if (!candidate.empty() && std::filesystem::exists(candidate, ec) &&
+                std::filesystem::is_directory(candidate, ec)) {
                 auto normalized = std::filesystem::weakly_canonical(candidate, ec);
                 if (ec) {
                     normalized = candidate.lexically_normal();
@@ -271,11 +266,13 @@ private:
         camera->pitch = std::clamp(camera->pitch, -kPitchLimitDegrees, kPitchLimitDegrees);
 
         if (input->isKeyPressed(GLFW_KEY_R)) {
-            camera->distance = std::max(camera->distance - kDistanceChangePerSecond * deltaTime * scrollSpeed*0.01f, kMinCameraDistance);
+            camera->distance = std::max(camera->distance - kDistanceChangePerSecond * deltaTime * scrollSpeed * 0.01f,
+                                        kMinCameraDistance);
             updated = true;
         }
         if (input->isKeyPressed(GLFW_KEY_F)) {
-            camera->distance = std::min(camera->distance + kDistanceChangePerSecond * deltaTime * scrollSpeed*0.01f, kMaxCameraDistance);
+            camera->distance = std::min(camera->distance + kDistanceChangePerSecond * deltaTime * scrollSpeed * 0.01f,
+                                        kMaxCameraDistance);
             updated = true;
         }
 
@@ -317,11 +314,10 @@ int main() {
     try {
         SphereViewerApp app;
         app.run();
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
 
     return EXIT_SUCCESS;
 }
-
