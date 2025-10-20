@@ -62,13 +62,12 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 uniform float uCurvature;
+uniform vec2 uMeshCenter;
 
 void main() {
-    const float kHalfWidth = 512.0;
-    const float kHalfHeight = 512.0;
     const float kEpsilon = 1e-6;
 
-    vec2 centered = vec2(aPos.x - kHalfWidth, aPos.y - kHalfHeight);
+    vec2 centered = vec2(aPos.x - uMeshCenter.x, aPos.y - uMeshCenter.y);
     vec3 curved = vec3(centered, aPos.z);
 
     if (abs(uCurvature) > kEpsilon) {
@@ -88,8 +87,8 @@ void main() {
         curved.z = aPos.z - drop;
     }
 
-    curved.x += kHalfWidth;
-    curved.y += kHalfHeight;
+    curved.x += uMeshCenter.x;
+    curved.y += uMeshCenter.y;
 
     vec4 world = model * vec4(curved, 1.0);
     WorldPos = vec3(world);
@@ -185,6 +184,7 @@ protected:
         maxElevLoc_ = shader->getUniformLocation("maxElevation");
         lightDirLoc_ = shader->getUniformLocation("lightDirection");
         curvatureLoc_ = shader->getUniformLocation("uCurvature");
+        meshCenterLoc_ = shader->getUniformLocation("uMeshCenter");
 
         lightDirection_ = glm::normalize(glm::vec3(
             std::cos(glm::radians(kLightAngleDegrees)),
@@ -197,26 +197,11 @@ protected:
     void update(float deltaTime) override {
         const float velocity = camera->speed * deltaTime;
 
-        if (input->isKeyPressed(GLFW_KEY_KP_4)) {
-            adjustLongitude(-kLongitudeStepDegrees*samplingStep_);
-        }
-        if (input->isKeyPressed(GLFW_KEY_KP_6)) {
-            adjustLongitude(kLongitudeStepDegrees*samplingStep_);
-        }
-        if (input->isKeyPressed(GLFW_KEY_KP_8)) {
-            adjustLatitude(-kLatitudeStepDegrees*samplingStep_);
-        }
-        if (input->isKeyPressed(GLFW_KEY_KP_2)) {
-            adjustLatitude(kLatitudeStepDegrees*samplingStep_);
-        }
-
-        if (input->isKeyPressed(GLFW_KEY_UP)) camera->distance -= velocity * 2.0f;
-        if (input->isKeyPressed(GLFW_KEY_DOWN)) camera->distance += velocity * 2.0f;
-        camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
-
-        camera->updateVectors();
-
-        camera->speed = input->isKeyPressed(GLFW_KEY_LEFT_SHIFT) ? kShiftSpeed : kNormalSpeed;
+        // if (input->isKeyPressed(GLFW_KEY_UP)) camera->distance -= velocity * 2.0f;
+        // if (input->isKeyPressed(GLFW_KEY_DOWN)) camera->distance += velocity * 2.0f;
+        // camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
+        // camera->updateVectors();
+        // camera->speed = input->isKeyPressed(GLFW_KEY_LEFT_SHIFT) ? kShiftSpeed : kNormalSpeed;
 
         if (needsReload_) {
             reloadTerrain();
@@ -243,6 +228,9 @@ protected:
         if (curvatureLoc_ != -1) {
             glUniform1f(curvatureLoc_, curvaturePerUnit_);
         }
+        if (meshCenterLoc_ != -1) {
+            glUniform2f(meshCenterLoc_, static_cast<float>(width_) / 2.0f, static_cast<float>(height_) / 2.0f);
+        }
 
         mesh->draw();
     }
@@ -258,6 +246,19 @@ protected:
 
         if (action == GLFW_PRESS || action == GLFW_REPEAT) {
             switch (key) {
+
+                case GLFW_KEY_KP_4:
+                    adjustLongitude(kLongitudeStepDegrees * samplingStep_);
+                    break;
+                case GLFW_KEY_KP_6:
+                    adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
+                    break;
+                case GLFW_KEY_KP_8:
+                    adjustLatitude(kLatitudeStepDegrees * samplingStep_);
+                    break;
+                case GLFW_KEY_KP_2:
+                    adjustLatitude(-kLatitudeStepDegrees * samplingStep_);
+                    break;
                 case GLFW_KEY_KP_5:
                     resetViewPosition();
                     break;
@@ -343,8 +344,8 @@ private:
             static_cast<float>(height_) / 2.0f,
             0.0f);
         camera->distance = 600.0f;
-        camera->yaw = -90.0f;
-        camera->pitch = 45.0f;
+        camera->yaw = 90.0f;
+        camera->pitch = 60.0f;
         camera->updateVectors();
     }
 
@@ -383,14 +384,14 @@ private:
         const float degreesPerPixelLon = 45.0f / static_cast<float>(TerrainLoader::TILE_WIDTH);
         const float degreesPerPixelLat = 30.0f / static_cast<float>(TerrainLoader::TILE_HEIGHT);
 
-        const float horizontalSamples = static_cast<float>(width_ - 1) * static_cast<float>(samplingStep_);
-        const float verticalSamples = static_cast<float>(height_ - 1) * static_cast<float>(samplingStep_);
+        const float horizontalSamples = static_cast<float>(width_) * static_cast<float>(samplingStep_);
+        const float verticalSamples = static_cast<float>(height_) * static_cast<float>(samplingStep_);
 
         const float lonSpanDegrees = horizontalSamples * degreesPerPixelLon;
         const float latSpanDegrees = verticalSamples * degreesPerPixelLat;
 
-        const float halfWidth = static_cast<float>(width_ - 1) * 0.5f;
-        const float halfHeight = static_cast<float>(height_ - 1) * 0.5f;
+        const float halfWidth = static_cast<float>(width_) * 0.5f;
+        const float halfHeight = static_cast<float>(height_) * 0.5f;
 
         float curvatureLon = 0.0f;
         if (halfWidth > 0.0f) {
@@ -409,8 +410,8 @@ private:
     std::string dataRoot_;
     std::vector<float> elevationData_;
     
-    int width_ = TerrainLoader::MESH_SIZE;
-    int height_ = TerrainLoader::MESH_SIZE;
+    int width_ = 1024;
+    int height_ = 1024;
 
     float minElevation_ = 0.0f;
     float maxElevation_ = 0.0f;
@@ -429,11 +430,12 @@ private:
     GLint maxElevLoc_ = -1;
     GLint lightDirLoc_ = -1;
     GLint curvatureLoc_ = -1;
+    GLint meshCenterLoc_ = -1;
     float curvaturePerUnit_ = 0.0f;
 };
 
 int main(int argc, char** argv) {
-    const char* defaultDataRoot = ".data/dem";
+    const char* defaultDataRoot = ".data/proc";
     std::string dataRoot = (argc > 1) ? argv[1] : defaultDataRoot;
 
     try {

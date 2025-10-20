@@ -18,6 +18,7 @@
         "*.cpp": "cpp",
         "*.h": "cpp",
         "xstring": "cpp",
-        "unordered_map": "cpp"
+        "unordered_map": "cpp",
+        "cmath": "cpp"
     }
 }

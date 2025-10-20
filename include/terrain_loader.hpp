@@ -22,9 +22,12 @@ public:
     };
 
     // --- Constants ---
-    static constexpr int MESH_SIZE = 1024;
+    static constexpr int CHUNK_SIZE = 512;
     static constexpr int TILE_WIDTH = 23040;
     static constexpr int TILE_HEIGHT = 15360;
+    static constexpr int NUM_CHUNKS_X = TILE_WIDTH / CHUNK_SIZE;
+    static constexpr int NUM_CHUNKS_Y = TILE_HEIGHT / CHUNK_SIZE;
+
 
     // --- State for Tile Caching (internal) ---
     struct TileStream {
@@ -33,7 +36,8 @@ public:
         double pixelsPerDegreeY = 0.0;
         double degreesPerPixelX = 0.0;
         double degreesPerPixelY = 0.0;
-        std::unordered_map<int, std::vector<float>> rowCache;
+        // The key is a 64-bit integer packing chunkX and chunkY for efficient lookups
+        std::unordered_map<int64_t, std::vector<float>> chunkCache;
     };
 
     // --- Public API ---
@@ -150,7 +154,7 @@ public:
 
 private:
     // --- Member State (for caching and scrolling) ---
-    std::string m_dataRoot = ".data/dem";
+    std::string m_dataRoot = ".data/proc";
     std::string m_currentTileFile;
     
     std::vector<float> m_elevationData; // Internal cache, stored in KM
@@ -189,7 +193,7 @@ private:
             return;
         }
 
-        // Optimized stateless loop
+        // The loading loop is chunk-aware
         for (int row = 0; row < height; ++row) {
             for (int x = 0; x < width; ++x) {
                 const int srcY = startY + row * steps;
@@ -197,11 +201,10 @@ private:
                 const size_t dataIndex = static_cast<size_t>(row) * width + x;
 
                 if (srcY >= 0 && srcY < TILE_HEIGHT && srcX >= 0 && srcX < TILE_WIDTH) {
-                    const std::vector<float>* rowData = fetchRow(*mainStream, srcY);
-                    if (rowData) {
-                        newData[dataIndex] = (*rowData)[srcX];
-                    }
+                    // This pixel is within the main tile, use the efficient chunked reader
+                    newData[dataIndex] = getHeightFromChunk(*mainStream, srcX, srcY);
                 } else {
+                    // This pixel is outside the main tile, use the global lookup as a fallback
                     const double sampleLat = tile.maxLatitude - static_cast<double>(srcY) * degPerPixelY;
                     const double sampleLon = tile.minLongitude + static_cast<double>(srcX) * degPerPixelX;
                     newData[dataIndex] = lookupHeight(sampleLat, sampleLon);
@@ -228,16 +231,14 @@ private:
      */
     void doScrollLoad(double povLat, double povLon, int width, int height, int steps, const TileInfo& tile) {
         
-        // --- START OF FIX ---
-
-        // 1. Calculate the *ideal* new center based on camera
-        int newCenterX, newCenterY, newStartX_ideal, newStartY_ideal;
-        double degPerPixelX_ignored, degPerPixelY_ignored; // We'll recalculate these
+        int newCenterX, newCenterY;
+        // The rest of these are unused in this calculation but required by the function
+        int ignored_startX, ignored_startY;
+        double ignored_dppX, ignored_dppY; 
         calculateViewParams(tile, povLat, povLon, width, height, steps,
-                            newCenterX, newCenterY, newStartX_ideal, newStartY_ideal, 
-                            degPerPixelX_ignored, degPerPixelY_ignored);
-
-        // 2. Calculate the *discrete grid shift* based on the *source pixel* delta
+                            newCenterX, newCenterY, ignored_startX, ignored_startY, 
+                            ignored_dppX, ignored_dppY);
+                            
         const int deltaX_src = newCenterX - m_currentCenterX;
         const int deltaY_src = newCenterY - m_currentCenterY;
 
@@ -257,57 +258,42 @@ private:
         std::vector<float> newData(static_cast<size_t>(width) * height, 0.0f);
         std::vector<bool> needsLoading(static_cast<size_t>(width) * height, false);
 
-        // 3. Copy old data to new positions
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 const int oldX = x + gridShiftX;
                 const int oldY = y + gridShiftY;
-
                 if (oldX >= 0 && oldX < width && oldY >= 0 && oldY < height) {
-                    newData[y * width + x] = m_elevationData[oldY * width + oldX];
+                    newData[static_cast<size_t>(y) * width + x] = m_elevationData[static_cast<size_t>(oldY) * width + oldX];
                 } else {
-                    needsLoading[y * width + x] = true;
+                    needsLoading[static_cast<size_t>(y) * width + x] = true;
                 }
             }
         }
 
-        // 4. Calculate the *actual* new grid center and start pixels based on the *discrete shift*
         const int effectiveNewCenterX = m_currentCenterX + gridShiftX * steps;
         const int effectiveNewCenterY = m_currentCenterY + gridShiftY * steps;
-        
         const int effectiveNewStartX = effectiveNewCenterX - (width * steps) / 2;
         const int effectiveNewStartY = effectiveNewCenterY - (height * steps) / 2;
-
-        // 5. We need deg/pixel for the fallback lookup
+        
         const double lonSpan = longitudeSpan(tile);
         const double latSpan = tile.maxLatitude - tile.minLatitude;
-        const double pixelsPerDegreeX = static_cast<double>(TILE_WIDTH) / lonSpan;
-        const double pixelsPerDegreeY = static_cast<double>(TILE_HEIGHT) / latSpan;
-        const double degPerPixelX = 1.0 / pixelsPerDegreeX;
-        const double degPerPixelY = 1.0 / pixelsPerDegreeY;
+        const double degPerPixelX = lonSpan / static_cast<double>(TILE_WIDTH);
+        const double degPerPixelY = latSpan / static_cast<double>(TILE_HEIGHT);
 
-        // 6. Load missing regions
         TileStream* mainStream = ensureTileStream(tile);
         if (!mainStream) return; // Error, just keep old data
 
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 const size_t dataIndex = static_cast<size_t>(y) * width + x;
-                if (!needsLoading[dataIndex]) {
-                    continue; // This pixel was copied
-                }
+                if (!needsLoading[dataIndex]) continue;
 
-                // Load based on the *effective* new start, not the ideal one
                 const int srcY = effectiveNewStartY + y * steps;
                 const int srcX = effectiveNewStartX + x * steps;
 
                 if (srcY >= 0 && srcY < TILE_HEIGHT && srcX >= 0 && srcX < TILE_WIDTH) {
-                    const std::vector<float>* rowData = fetchRow(*mainStream, srcY);
-                    if (rowData) {
-                        newData[dataIndex] = (*rowData)[srcX];
-                    }
+                    newData[dataIndex] = getHeightFromChunk(*mainStream, srcX, srcY);
                 } else {
-                    // Fallback to global lookup
                     const double sampleLat = tile.maxLatitude - static_cast<double>(srcY) * degPerPixelY;
                     const double sampleLon = tile.minLongitude + static_cast<double>(srcX) * degPerPixelX;
                     newData[dataIndex] = lookupHeight(sampleLat, sampleLon);
@@ -315,23 +301,17 @@ private:
             }
         }
 
-        // 7. Finalize and update state
-        m_elevationData.swap(newData); // Swap new data into our internal cache
+        m_elevationData.swap(newData);
         m_currentLat = povLat;
         m_currentLon = povLon;
-        
-        // Update state to the *actual* new grid center
         m_currentCenterX = effectiveNewCenterX;
         m_currentCenterY = effectiveNewCenterY;
-
-        // --- END OF FIX ---
     }
 
-    // --- Tile Loading Helpers (now member functions) ---
+    // --- Tile Loading Helpers ---
 
     TileStream* ensureTileStream(const TileInfo& info) {
-        auto it = m_tileCache.find(info.filename);
-        if (it != m_tileCache.end()) {
+        if (auto it = m_tileCache.find(info.filename); it != m_tileCache.end()) {
             return &it->second;
         }
 
@@ -342,7 +322,7 @@ private:
             throw std::runtime_error("Invalid tile metadata: zero span");
         }
 
-        const std::filesystem::path path = std::filesystem::path(m_dataRoot) / info.filename;
+        const auto path = std::filesystem::path(m_dataRoot) / info.filename;
         stream.file.open(path, std::ios::binary);
         if (!stream.file.is_open()) {
             std::cerr << "Error: Could not open file: " << path.string() << std::endl;
@@ -358,30 +338,52 @@ private:
         return &emplacedIt->second;
     }
 
-    const std::vector<float>* fetchRow(TileStream& stream, int rowIndex) {
-        if (rowIndex < 0 || rowIndex >= TILE_HEIGHT) {
+    const std::vector<float>* fetchChunk(TileStream& stream, int chunkX, int chunkY) {
+        if (chunkX < 0 || chunkX >= NUM_CHUNKS_X || chunkY < 0 || chunkY >= NUM_CHUNKS_Y) {
             return nullptr;
         }
 
-        auto cached = stream.rowCache.find(rowIndex);
-        if (cached != stream.rowCache.end()) {
+        const int64_t chunkKey = (static_cast<int64_t>(chunkY) << 32) | chunkX;
+        if (auto cached = stream.chunkCache.find(chunkKey); cached != stream.chunkCache.end()) {
             return &cached->second;
         }
 
-        std::vector<float> row(static_cast<size_t>(TILE_WIDTH));
-        const std::streamoff byteOffset = static_cast<std::streamoff>(rowIndex) * TILE_WIDTH * sizeof(float);
+        const int linearChunkIndex = chunkY * NUM_CHUNKS_X + chunkX;
+        const std::streamoff byteOffset = static_cast<std::streamoff>(linearChunkIndex) * CHUNK_SIZE * CHUNK_SIZE * sizeof(float);
+        
+        std::vector<float> chunkData(CHUNK_SIZE * CHUNK_SIZE);
 
         stream.file.clear();
         stream.file.seekg(byteOffset);
-        stream.file.read(reinterpret_cast<char*>(row.data()), static_cast<std::streamsize>(row.size() * sizeof(float)));
+        stream.file.read(reinterpret_cast<char*>(chunkData.data()), static_cast<std::streamsize>(chunkData.size() * sizeof(float)));
+        
         if (!stream.file) {
-            stream.file.clear();
+            stream.file.clear(); // Clear error flags
+            std::cerr << "File read error at offset " << byteOffset << std::endl;
             return nullptr;
         }
 
-        auto [rowIt, inserted] = stream.rowCache.emplace(rowIndex, std::move(row));
-        return &rowIt->second;
+        auto [it, inserted] = stream.chunkCache.emplace(chunkKey, std::move(chunkData));
+        return &it->second;
     }
+
+    // Helper to get a single height value using the chunk system.
+    float getHeightFromChunk(TileStream& stream, int pixelX, int pixelY) {
+        const int chunkX = pixelX / CHUNK_SIZE;
+        const int chunkY = pixelY / CHUNK_SIZE;
+
+        const std::vector<float>* chunkData = fetchChunk(stream, chunkX, chunkY);
+        if (!chunkData) {
+            return 0.0f; // Default value on error
+        }
+
+        const int innerX = pixelX % CHUNK_SIZE;
+        const int innerY = pixelY % CHUNK_SIZE;
+        const int innerIndex = innerY * CHUNK_SIZE + innerX;
+
+        return (*chunkData)[innerIndex];
+    }
+
 
     float lookupHeight(double latDeg, double lonDeg) {
         if (latDeg < -60.0 || latDeg > 60.0) {
@@ -403,7 +405,7 @@ private:
         if (!stream) {
             return 0.0f;
         }
-
+        
         const double lonOffset = longitudeOffsetWithinTile(*sampleTile, wrappedLon);
         const double clampedSampleLat = std::clamp(latDeg, sampleTile->minLatitude, sampleTile->maxLatitude);
 
@@ -413,12 +415,7 @@ private:
         int pixelY = static_cast<int>(std::round((sampleTile->maxLatitude - clampedSampleLat) * stream->pixelsPerDegreeY));
         pixelY = std::clamp(pixelY, 0, TILE_HEIGHT - 1);
 
-        const std::vector<float>* rowData = fetchRow(*stream, pixelY);
-        if (!rowData) {
-            return 0.0f;
-        }
-
-        return (*rowData)[pixelX];
+        return getHeightFromChunk(*stream, pixelX, pixelY);
     }
 
     void calculateViewParams(const TileInfo& tile, double povLat, double povLon, 
@@ -456,41 +453,41 @@ private:
 
     static const std::vector<TileInfo>& tiles() {
         static const std::vector<TileInfo> kTiles = {
-            {"SLDEM2015_512_60S_30S_000_045_FLOAT.IMG", -60.0, -30.0, 0.0, 45.0},
-            {"SLDEM2015_512_60S_30S_045_090_FLOAT.IMG", -60.0, -30.0, 45.0, 90.0},
-            {"SLDEM2015_512_60S_30S_090_135_FLOAT.IMG", -60.0, -30.0, 90.0, 135.0},
-            {"SLDEM2015_512_60S_30S_135_180_FLOAT.IMG", -60.0, -30.0, 135.0, 180.0},
-            {"SLDEM2015_512_60S_30S_180_225_FLOAT.IMG", -60.0, -30.0, 180.0, 225.0},
-            {"SLDEM2015_512_60S_30S_225_270_FLOAT.IMG", -60.0, -30.0, 225.0, 270.0},
-            {"SLDEM2015_512_60S_30S_270_315_FLOAT.IMG", -60.0, -30.0, 270.0, 315.0},
-            {"SLDEM2015_512_60S_30S_315_360_FLOAT.IMG", -60.0, -30.0, 315.0, 360.0},
+            {"SLDEM2015_512_60S_30S_000_045_CHUNKED_512.DAT", -60.0, -30.0, 0.0, 45.0},
+            {"SLDEM2015_512_60S_30S_045_090_CHUNKED_512.DAT", -60.0, -30.0, 45.0, 90.0},
+            {"SLDEM2015_512_60S_30S_090_135_CHUNKED_512.DAT", -60.0, -30.0, 90.0, 135.0},
+            {"SLDEM2015_512_60S_30S_135_180_CHUNKED_512.DAT", -60.0, -30.0, 135.0, 180.0},
+            {"SLDEM2015_512_60S_30S_180_225_CHUNKED_512.DAT", -60.0, -30.0, 180.0, 225.0},
+            {"SLDEM2015_512_60S_30S_225_270_CHUNKED_512.DAT", -60.0, -30.0, 225.0, 270.0},
+            {"SLDEM2015_512_60S_30S_270_315_CHUNKED_512.DAT", -60.0, -30.0, 270.0, 315.0},
+            {"SLDEM2015_512_60S_30S_315_360_CHUNKED_512.DAT", -60.0, -30.0, 315.0, 360.0},
 
-            {"SLDEM2015_512_30S_00S_000_045_FLOAT.IMG", -30.0, 0.0, 0.0, 45.0},
-            {"SLDEM2015_512_30S_00S_045_090_FLOAT.IMG", -30.0, 0.0, 45.0, 90.0},
-            {"SLDEM2015_512_30S_00S_090_135_FLOAT.IMG", -30.0, 0.0, 90.0, 135.0},
-            {"SLDEM2015_512_30S_00S_135_180_FLOAT.IMG", -30.0, 0.0, 135.0, 180.0},
-            {"SLDEM2015_512_30S_00S_180_225_FLOAT.IMG", -30.0, 0.0, 180.0, 225.0},
-            {"SLDEM2015_512_30S_00S_225_270_FLOAT.IMG", -30.0, 0.0, 225.0, 270.0},
-            {"SLDEM2015_512_30S_00S_270_315_FLOAT.IMG", -30.0, 0.0, 270.0, 315.0},
-            {"SLDEM2015_512_30S_00S_315_360_FLOAT.IMG", -30.0, 0.0, 315.0, 360.0},
+            {"SLDEM2015_512_30S_00S_000_045_CHUNKED_512.DAT", -30.0, 0.0, 0.0, 45.0},
+            {"SLDEM2015_512_30S_00S_045_090_CHUNKED_512.DAT", -30.0, 0.0, 45.0, 90.0},
+            {"SLDEM2015_512_30S_00S_090_135_CHUNKED_512.DAT", -30.0, 0.0, 90.0, 135.0},
+            {"SLDEM2015_512_30S_00S_135_180_CHUNKED_512.DAT", -30.0, 0.0, 135.0, 180.0},
+            {"SLDEM2015_512_30S_00S_180_225_CHUNKED_512.DAT", -30.0, 0.0, 180.0, 225.0},
+            {"SLDEM2015_512_30S_00S_225_270_CHUNKED_512.DAT", -30.0, 0.0, 225.0, 270.0},
+            {"SLDEM2015_512_30S_00S_270_315_CHUNKED_512.DAT", -30.0, 0.0, 270.0, 315.0},
+            {"SLDEM2015_512_30S_00S_315_360_CHUNKED_512.DAT", -30.0, 0.0, 315.0, 360.0},
 
-            {"SLDEM2015_512_00N_30N_000_045_FLOAT.IMG", 0.0, 30.0, 0.0, 45.0},
-            {"SLDEM2015_512_00N_30N_045_090_FLOAT.IMG", 0.0, 30.0, 45.0, 90.0},
-            {"SLDEM2015_512_00N_30N_090_135_FLOAT.IMG", 0.0, 30.0, 90.0, 135.0},
-            {"SLDEM2015_512_00N_30N_135_180_FLOAT.IMG", 0.0, 30.0, 135.0, 180.0},
-            {"SLDEM2015_512_00N_30N_180_225_FLOAT.IMG", 0.0, 30.0, 180.0, 225.0},
-            {"SLDEM2015_512_00N_30N_225_270_FLOAT.IMG", 0.0, 30.0, 225.0, 270.0},
-            {"SLDEM2015_512_00N_30N_270_315_FLOAT.IMG", 0.0, 30.0, 270.0, 315.0},
-            {"SLDEM2015_512_00N_30N_315_360_FLOAT.IMG", 0.0, 30.0, 315.0, 360.0},
+            {"SLDEM2015_512_00N_30N_000_045_CHUNKED_512.DAT", 0.0, 30.0, 0.0, 45.0},
+            {"SLDEM2015_512_00N_30N_045_090_CHUNKED_512.DAT", 0.0, 30.0, 45.0, 90.0},
+            {"SLDEM2015_512_00N_30N_090_135_CHUNKED_512.DAT", 0.0, 30.0, 90.0, 135.0},
+            {"SLDEM2015_512_00N_30N_135_180_CHUNKED_512.DAT", 0.0, 30.0, 135.0, 180.0},
+            {"SLDEM2015_512_00N_30N_180_225_CHUNKED_512.DAT", 0.0, 30.0, 180.0, 225.0},
+            {"SLDEM2015_512_00N_30N_225_270_CHUNKED_512.DAT", 0.0, 30.0, 225.0, 270.0},
+            {"SLDEM2015_512_00N_30N_270_315_CHUNKED_512.DAT", 0.0, 30.0, 270.0, 315.0},
+            {"SLDEM2015_512_00N_30N_315_360_CHUNKED_512.DAT", 0.0, 30.0, 315.0, 360.0},
 
-            {"SLDEM2015_512_30N_60N_000_045_FLOAT.IMG", 30.0, 60.0, 0.0, 45.0},
-            {"SLDEM2015_512_30N_60N_045_090_FLOAT.IMG", 30.0, 60.0, 45.0, 90.0},
-            {"SLDEM2015_512_30N_60N_090_135_FLOAT.IMG", 30.0, 60.0, 90.0, 135.0},
-            {"SLDEM2015_512_30N_60N_135_180_FLOAT.IMG", 30.0, 60.0, 135.0, 180.0},
-            {"SLDEM2015_512_30N_60N_180_225_FLOAT.IMG", 30.0, 60.0, 180.0, 225.0},
-            {"SLDEM2015_512_30N_60N_225_270_FLOAT.IMG", 30.0, 60.0, 225.0, 270.0},
-            {"SLDEM2015_512_30N_60N_270_315_FLOAT.IMG", 30.0, 60.0, 270.0, 315.0},
-            {"SLDEM2015_512_30N_60N_315_360_FLOAT.IMG", 30.0, 60.0, 315.0, 360.0},
+            {"SLDEM2015_512_30N_60N_000_045_CHUNKED_512.DAT", 30.0, 60.0, 0.0, 45.0},
+            {"SLDEM2015_512_30N_60N_045_090_CHUNKED_512.DAT", 30.0, 60.0, 45.0, 90.0},
+            {"SLDEM2015_512_30N_60N_090_135_CHUNKED_512.DAT", 30.0, 60.0, 90.0, 135.0},
+            {"SLDEM2015_512_30N_60N_135_180_CHUNKED_512.DAT", 30.0, 60.0, 135.0, 180.0},
+            {"SLDEM2015_512_30N_60N_180_225_CHUNKED_512.DAT", 30.0, 60.0, 180.0, 225.0},
+            {"SLDEM2015_512_30N_60N_225_270_CHUNKED_512.DAT", 30.0, 60.0, 225.0, 270.0},
+            {"SLDEM2015_512_30N_60N_270_315_CHUNKED_512.DAT", 30.0, 60.0, 270.0, 315.0},
+            {"SLDEM2015_512_30N_60N_315_360_CHUNKED_512.DAT", 30.0, 60.0, 315.0, 360.0},
         };
         return kTiles;
     }

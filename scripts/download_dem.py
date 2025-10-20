@@ -11,7 +11,7 @@ from tqdm import tqdm
 TILE_SIZE = 3601
 TILE_DEGREE_SIZE = 1
 DATA_URL_TEMPLATE = 'http://imbrium.mit.edu/DATA/SLDEM2015/TILES/FLOAT_IMG/SLDEM2015_512_{lat_range}_{lon_range}_FLOAT.IMG'
-DATA_FILE_TEMPLATE = '.data/SLDEM2015_512_{lat_range}_{lon_range}_FLOAT.IMG'
+DATA_FILE_TEMPLATE = '.data/dem/SLDEM2015_512_{lat_range}_{lon_range}_FLOAT.IMG'
 
 lat_ranges = ['00N_30N', '30N_60N', '30S_00S', '60S_30S']
 lon_ranges = ['000_045', '045_090', '090_135', '135_180',
@@ -49,16 +49,8 @@ def main():
         for lon_range in lon_ranges:
 
             imgUrl = DATA_URL_TEMPLATE.replace('{lat_range}', lat_range).replace('{lon_range}', lon_range)
-            lblUrl = imgUrl.replace('.IMG', '.LBL')
-
             imgFile = DATA_FILE_TEMPLATE.replace('{lat_range}', lat_range).replace('{lon_range}', lon_range)
-            lblFile = imgFile.replace('.IMG', '.LBL')
 
-            if not os.path.exists(lblFile):
-               print(f"Downloading {lblUrl}...")
-               download_with_progress(lblUrl, lblFile)
-            else:
-               print(f"{lblFile} already exists, skipping download.")
             if not os.path.exists(imgFile): 
                print(f"Downloading {imgUrl}...")
                download_with_progress(imgUrl, imgFile)
