@@ -19,6 +19,7 @@
         "*.h": "cpp",
         "xstring": "cpp",
         "unordered_map": "cpp",
-        "cmath": "cpp"
+        "cmath": "cpp",
+        "utility": "cpp"
     }
 }

@@ -3,13 +3,12 @@
 #include "application.hpp"
 #include "window.hpp"
 #include "shader.hpp"
+#include "sphere.hpp"
 
 // FONT RENDERING INCLUDES
 // The stb_truetype library does the heavy lifting of font processing.
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
-// This header contains the font data itself as a C-style byte array.
-// #include "font_proggy_clean.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -32,21 +31,15 @@
 namespace {
 
 // --- CONSTANTS ---
-constexpr float kSphereRadius = 1000.0f;
-constexpr int kTileLatitudeDegrees = 5;
-constexpr int kTileLongitudeDegrees = 5;
-constexpr int kBaseTileResolution = 2;
-constexpr int kBaseSegmentsPerEdge = (kBaseTileResolution > 1) ? (kBaseTileResolution - 1) : 1;
-constexpr int kMaxTileExponent = 9;
-constexpr float kMinCameraDistance = 1100.0f;
-constexpr float kMaxCameraDistance = 10000.0f;
-constexpr float kOrbitMinSpeedDegreesPerSecond =  2.0f;
+constexpr float kSphereRadius = 1737.4f;
+constexpr float kMinCameraDistance = 1750.0f;
+constexpr float kMaxCameraDistance = 20000.0f;
+constexpr float kScrollMinSpeed = 1.0f;
+constexpr float kScrollMaxSpeed = 2000.0f;
+constexpr float kOrbitMinSpeedDegreesPerSecond =  0.2f;
 constexpr float kOrbitMaxSpeedDegreesPerSecond = 90.0f;
 constexpr float kDistanceChangePerSecond = 1500.0f;
 constexpr float kPitchLimitDegrees = 89.0f;
-constexpr float kScrollMinSpeed = 60.0f;
-constexpr float kScrollMaxSpeed = 1800.0f;
-constexpr float kTargetTrianglePixelWidth = 100.0f;
 
 // --- FONT CONSTANTS ---
 constexpr float kOverlayUpdateInterval = 0.25f;
@@ -146,45 +139,6 @@ void main() {
 
 // NOTE: All the old glyph drawing functions (AppendDigit, AppendRect, etc.) have been removed.
 
-struct Tile {
-    float latStartDeg = 0.0f;
-    float lonStartDeg = 0.0f;
-    float latCenterRad = 0.0f;
-    glm::vec3 color{1.0f};
-    glm::vec3 centerDirection{0.0f, 0.0f, 1.0f};
-    glm::vec3 centerPosition{0.0f, 0.0f, kSphereRadius};
-    float widthWorld = 0.0f;
-    float heightWorld = 0.0f;
-    float maxWorldSpan = 0.0f;
-    int currentExponent = -1;
-    bool visible = true;
-    std::vector<float> vertices;
-    std::vector<unsigned int> indices;
-    size_t vertexCount = 0;
-};
-
-glm::vec3 SphericalToCartesian(float radius, float latitudeRad, float longitudeRad) {
-    const float cosLat = std::cos(latitudeRad);
-    const float sinLat = std::sin(latitudeRad);
-    const float cosLon = std::cos(longitudeRad);
-    const float sinLon = std::sin(longitudeRad);
-
-    return glm::vec3(radius * cosLat * cosLon,
-                     radius * cosLat * sinLon,
-                     radius * sinLat);
-}
-
-int DetermineExponentForTargetSegments(int targetSegments) {
-    targetSegments = std::max(targetSegments, 1);
-    for (int exponent = 0; exponent <= kMaxTileExponent; ++exponent) {
-        const int segments = std::max(1, kBaseSegmentsPerEdge * (1 << exponent));
-        if (segments >= targetSegments) {
-            return exponent;
-        }
-    }
-    return kMaxTileExponent;
-}
-
 }  // namespace
 
 class SphereViewerApp : public Application {
@@ -212,9 +166,7 @@ protected:
 
         shader = std::make_unique<ShaderProgram>(kVertexShaderSource, kFragmentShaderSource);
 
-        initializeTiles();
-        meshDirty_ = true;
-        updateTileLODs(true);
+        sphere_ = std::make_unique<Sphere>(kSphereRadius);
 
         shader->use();
         modelLoc_ = shader->getUniformLocation("model");
@@ -232,7 +184,7 @@ protected:
 
     void update(float deltaTime) override {
         handleCameraInput(deltaTime);
-        updateTileLODs();
+        sphere_->updateLODs(camera.get(), screenSize_, false);
         updateFpsCounter(deltaTime);
     }
 
@@ -259,9 +211,7 @@ protected:
         glUniform3fv(lightDirLoc_, 1, glm::value_ptr(lightDirection));
         glUniform3fv(cameraPosLoc_, 1, glm::value_ptr(camera->position));
 
-        if (mesh && mesh->getIndexCount() > 0) {
-            mesh->draw();
-        }
+        sphere_->draw();
 
         renderOverlay();
     }
@@ -298,8 +248,8 @@ protected:
 
         if (input->leftMousePressed) {
             const float orbitSpeed = computeOrbitSpeed();
-            const float yawDelta = mouseDelta.x * camera->sensitivity * orbitSpeed * 0.1f;
-            const float pitchDelta = mouseDelta.y * camera->sensitivity * orbitSpeed * 0.1f;
+            const float yawDelta = mouseDelta.x * camera->sensitivity * orbitSpeed * 0.01f;
+            const float pitchDelta = mouseDelta.y * camera->sensitivity * orbitSpeed * 0.01f;
             camera->yaw -= yawDelta;
             camera->pitch -= pitchDelta;
             camera->pitch = std::clamp(camera->pitch, -kPitchLimitDegrees, kPitchLimitDegrees);
@@ -328,48 +278,10 @@ protected:
     }
 
 private:
-    void initializeTiles() {
-        tiles_.clear();
-        std::mt19937 rng(123456u);
-        std::uniform_real_distribution<float> colorDist(0.25f, 0.95f);
-
-        const int latTileCount = 180 / kTileLatitudeDegrees;
-        const int lonTileCount = 360 / kTileLongitudeDegrees;
-        const float latSpanRad = glm::radians(static_cast<float>(kTileLatitudeDegrees));
-        const float lonSpanRad = glm::radians(static_cast<float>(kTileLongitudeDegrees));
-
-        tiles_.reserve(static_cast<size_t>(latTileCount * lonTileCount));
-
-        for (int latIdx = 0; latIdx < latTileCount; ++latIdx) {
-            const float latStart = -90.0f + static_cast<float>(latIdx * kTileLatitudeDegrees);
-            const float latCenter = latStart + 0.5f * kTileLatitudeDegrees;
-
-            for (int lonIdx = 0; lonIdx < lonTileCount; ++lonIdx) {
-                const float lonStart = -180.0f + static_cast<float>(lonIdx * kTileLongitudeDegrees);
-                const float lonCenter = lonStart + 0.5f * kTileLongitudeDegrees;
-
-                Tile tile;
-                tile.latStartDeg = latStart;
-                tile.lonStartDeg = lonStart;
-                tile.latCenterRad = glm::radians(latCenter);
-                tile.color = glm::vec3(colorDist(rng), colorDist(rng), colorDist(rng));
-                tile.centerDirection = glm::normalize(
-                    SphericalToCartesian(1.0f, glm::radians(latCenter), glm::radians(lonCenter)));
-                tile.centerPosition = tile.centerDirection * kSphereRadius;
-
-                const float cosLat = std::abs(std::cos(tile.latCenterRad));
-                tile.widthWorld = kSphereRadius * lonSpanRad * std::max(0.001f, cosLat);
-                tile.heightWorld = kSphereRadius * latSpanRad;
-                tile.maxWorldSpan = std::max(tile.widthWorld, tile.heightWorld);
-
-                tiles_.push_back(std::move(tile));
-            }
-        }
-    }
-
     void handleCameraInput(float deltaTime) {
         bool updated = false;
         const float orbitSpeed = computeOrbitSpeed();
+        const float scrollSpeed = computeScrollZoomSpeed();
 
         if (input->isKeyPressed(GLFW_KEY_W)) {
             camera->pitch += orbitSpeed * deltaTime;
@@ -391,169 +303,16 @@ private:
         camera->pitch = std::clamp(camera->pitch, -kPitchLimitDegrees, kPitchLimitDegrees);
 
         if (input->isKeyPressed(GLFW_KEY_R)) {
-            camera->distance = std::min(camera->distance + kDistanceChangePerSecond * deltaTime, kMaxCameraDistance);
+            camera->distance = std::max(camera->distance - kDistanceChangePerSecond * deltaTime * scrollSpeed*0.01f, kMinCameraDistance);
             updated = true;
         }
         if (input->isKeyPressed(GLFW_KEY_F)) {
-            camera->distance = std::max(camera->distance - kDistanceChangePerSecond * deltaTime, kMinCameraDistance);
+            camera->distance = std::min(camera->distance + kDistanceChangePerSecond * deltaTime * scrollSpeed*0.01f, kMaxCameraDistance);
             updated = true;
         }
 
         if (updated) {
             camera->updateVectors();
-        }
-    }
-
-    void updateTileLODs(bool force = false) {
-        if (tiles_.empty()) {
-            return;
-        }
-
-        const float screenWidth = std::max(screenSize_.x, 1.0f);
-        const float screenHeight = std::max(screenSize_.y, 1.0f);
-        const float aspectRatio = screenWidth / screenHeight;
-        float fovYRad = glm::radians(std::clamp(camera->fov, 1.0f, 179.0f));
-        float fovXRad = 2.0f * std::atan(std::tan(fovYRad * 0.5f) * aspectRatio);
-        if (!std::isfinite(fovXRad) || fovXRad <= 0.0f) {
-            fovXRad = fovYRad;
-        }
-
-        const glm::vec3 cameraPos = camera->position;
-        const glm::vec3 cameraForward = glm::normalize(camera->front);
-        const int maxSegments = std::max(1, kBaseTileResolution * (1 << kMaxTileExponent));
-        const glm::mat4 viewMatrix = getViewMatrix();
-        const glm::mat4 projectionMatrix = getProjectionMatrix();
-        const glm::mat4 viewProjection = projectionMatrix * viewMatrix;
-        const float clipTolerance = 1.05f;
-
-        bool anyChanged = false;
-        const float maxTileAngularSpan = glm::radians(std::max(kTileLatitudeDegrees, kTileLongitudeDegrees) * 0.5f);
-        const float normalCullThreshold = -std::sin(maxTileAngularSpan);
-
-        for (auto& tile : tiles_) {
-            const glm::vec3 toTile = tile.centerPosition - cameraPos;
-            float distance = glm::length(toTile);
-            if (!std::isfinite(distance) || distance <= 1e-3f) {
-                distance = 1e-3f;
-            }
-
-            const glm::vec3 toTileDir = toTile / distance;
-            const float facing = glm::dot(toTileDir, cameraForward);
-            const glm::vec3 toCameraDir = glm::normalize(cameraPos - tile.centerPosition);
-            const float normalFacing = glm::dot(tile.centerDirection, toCameraDir);
-
-            const glm::vec4 clipPos = viewProjection * glm::vec4(tile.centerPosition, 1.0f);
-
-            const bool tileVisible = facing > 0.0f && 
-                         normalFacing > normalCullThreshold;
-
-            if (tile.visible != tileVisible) {
-                tile.visible = tileVisible;
-                anyChanged = true;
-            }
-
-            if (!tile.visible) continue;
-
-            int targetExponent = 0;
-            if (tile.maxWorldSpan > 0.0f) {
-                const float projectedSpan = tile.maxWorldSpan * std::max(0.0f, facing);
-                float angularWidth = 2.0f * std::atan(projectedSpan * 0.5f / distance);
-                angularWidth = std::max(0.0f, angularWidth);
-                float apparentPixelWidth = (angularWidth / fovXRad) * screenWidth;
-                apparentPixelWidth = std::max(0.0f, apparentPixelWidth);
-                int targetSegments = static_cast<int>(std::ceil(apparentPixelWidth / kTargetTrianglePixelWidth));
-                targetSegments = std::clamp(targetSegments, 1, maxSegments);
-                targetExponent = DetermineExponentForTargetSegments(targetSegments);
-            }
-
-            if (force || tile.currentExponent != targetExponent || tile.vertexCount == 0) {
-                generateTileGeometry(tile, targetExponent);
-                tile.currentExponent = targetExponent;
-                anyChanged = true;
-            }
-        }
-
-        if (anyChanged || force || meshDirty_) {
-            rebuildMesh();
-            meshDirty_ = false;
-        }
-    }
-
-    void generateTileGeometry(Tile& tile, int exponent) {
-        const int subdivisions = (1 << exponent);
-        const int maxSubdivisions = 1 << kMaxTileExponent;
-        const int rows = std::clamp(kBaseTileResolution * subdivisions, kBaseTileResolution, kBaseTileResolution * maxSubdivisions);
-        const int cols = rows;
-
-        const float latSpanRad = glm::radians(static_cast<float>(kTileLatitudeDegrees));
-        const float lonSpanRad = glm::radians(static_cast<float>(kTileLongitudeDegrees));
-        const float latStartRad = glm::radians(tile.latStartDeg);
-        const float lonStartRad = glm::radians(tile.lonStartDeg);
-
-        const float latStep = latSpanRad / static_cast<float>(rows - 1);
-        const float lonStep = lonSpanRad / static_cast<float>(cols - 1);
-
-        tile.vertices.assign(static_cast<size_t>(rows * cols * 9), 0.0f);
-        tile.indices.clear();
-        tile.indices.reserve(static_cast<size_t>((rows - 1) * (cols - 1) * 6));
-        
-        for (int r = 0; r < rows; ++r) {
-            const float lat = latStartRad + static_cast<float>(r) * latStep;
-            for (int c = 0; c < cols; ++c) {
-                const float lon = lonStartRad + static_cast<float>(c) * lonStep;
-                const glm::vec3 pos = SphericalToCartesian(kSphereRadius, lat, lon);
-                const glm::vec3 norm = glm::normalize(pos);
-                
-                size_t baseIdx = (r * cols + c) * 9;
-                tile.vertices[baseIdx + 0] = pos.x;
-                tile.vertices[baseIdx + 1] = pos.y;
-                tile.vertices[baseIdx + 2] = pos.z;
-                tile.vertices[baseIdx + 3] = norm.x;
-                tile.vertices[baseIdx + 4] = norm.y;
-                tile.vertices[baseIdx + 5] = norm.z;
-                tile.vertices[baseIdx + 6] = tile.color.r;
-                tile.vertices[baseIdx + 7] = tile.color.g;
-                tile.vertices[baseIdx + 8] = tile.color.b;
-            }
-        }
-
-        for (int r = 0; r < rows - 1; ++r) {
-            for (int c = 0; c < cols - 1; ++c) {
-                const unsigned int current = static_cast<unsigned int>(r * cols + c);
-                const unsigned int nextRow = static_cast<unsigned int>((r + 1) * cols + c);
-
-                tile.indices.push_back(current);
-                tile.indices.push_back(current + 1);
-                tile.indices.push_back(nextRow);
-
-                tile.indices.push_back(nextRow);
-                tile.indices.push_back(current + 1);
-                tile.indices.push_back(nextRow + 1);
-            }
-        }
-        tile.vertexCount = static_cast<size_t>(rows * cols);
-    }
-
-    void rebuildMesh() {
-        if (!mesh) return;
-        mesh->vertices.clear();
-        mesh->indices.clear();
-
-        size_t vertexOffset = 0;
-        for (const auto& tile : tiles_) {
-            if (!tile.visible || tile.vertexCount == 0) continue;
-            mesh->vertices.insert(mesh->vertices.end(), tile.vertices.begin(), tile.vertices.end());
-            for (unsigned int index : tile.indices) {
-                mesh->indices.push_back(static_cast<unsigned int>(index + vertexOffset));
-            }
-            vertexOffset += tile.vertexCount;
-        }
-
-        mesh->uploadData();
-
-        if (!attributesConfigured_) {
-            mesh->setupVertexAttributes({3, 3, 3});
-            attributesConfigured_ = true;
         }
     }
 
@@ -696,9 +455,7 @@ private:
         glEnable(GL_DEPTH_TEST);
     }
 
-    std::vector<Tile> tiles_;
-    bool meshDirty_ = false;
-    bool attributesConfigured_ = false;
+    std::unique_ptr<Sphere> sphere_;
     bool wireframeEnabled_ = false;
 
     // --- FONT RENDERING ---
@@ -729,7 +486,7 @@ private:
         const float range = std::max(kMaxCameraDistance - kMinCameraDistance, 1.0f);
         float ratio = (camera->distance - kMinCameraDistance) / range;
         ratio = std::clamp(ratio, 0.0f, 1.0f);
-        const float eased = ratio * ratio * ratio;  // smooth ease-out as distance grows
+        const float eased = powf(ratio, 0.707f); // * ratio;
         return kScrollMinSpeed + (kScrollMaxSpeed - kScrollMinSpeed) * eased;
     }
 
@@ -737,7 +494,7 @@ private:
         const float range = std::max(kMaxCameraDistance - kMinCameraDistance, 1.0f);
         float ratio = (camera->distance - kMinCameraDistance) / range;
         ratio = std::clamp(ratio, 0.0f, 1.0f);
-        const float eased = powf(ratio, 0.707f);
+        const float eased = powf(ratio, 0.707f); // * ratio;
         return kOrbitMinSpeedDegreesPerSecond +
                (kOrbitMaxSpeedDegreesPerSecond - kOrbitMinSpeedDegreesPerSecond) * eased;
     }

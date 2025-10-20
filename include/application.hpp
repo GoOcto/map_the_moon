@@ -147,9 +147,9 @@ public:
                 wireframeMode = !wireframeMode;
                 glPolygonMode(GL_FRONT_AND_BACK, wireframeMode ? GL_LINE : GL_FILL);
             } else if (key == GLFW_KEY_R) {
-                camera->reset();
-                camera->updateVectors();
-                std::cout << "Camera reset" << std::endl;
+                // camera->reset();
+                // camera->updateVectors();
+                // std::cout << "Camera reset" << std::endl;
             }
         } else if (action == GLFW_RELEASE) {
             input->handleKeyRelease(key);
@@ -196,7 +196,7 @@ public:
     glm::mat4 getProjectionMatrix() const {
         return glm::perspective(glm::radians(camera->fov),
                                window->getAspectRatio(),
-                               0.1f, 10000.0f);
+                               0.1f, 20000.0f);
     }
     
     glm::mat4 getViewMatrix() const {
