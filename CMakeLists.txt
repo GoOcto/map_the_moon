@@ -11,9 +11,9 @@ find_package(OpenGL REQUIRED)
 set(LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)
 set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 
-# GLEW
+# GLEW (link statically to avoid runtime DLL dependency)
 set(GLEW_INCLUDE_DIR ${LIBS_DIR}/glew/include)
-set(GLEW_LIBRARY ${LIBS_DIR}/glew/lib/Release/x64/glew32.lib)
+set(GLEW_LIBRARY ${LIBS_DIR}/glew/lib/Release/x64/glew32s.lib)
 
 # GLFW
 set(GLFW_INCLUDE_DIR ${LIBS_DIR}/glfw/include)
@@ -51,10 +51,13 @@ target_link_libraries(lunar_viewer PRIVATE  # <-- Added PRIVATE keyword
     # REMOVED generator expressions for windows libs 
 )
 
+target_compile_definitions(lunar_viewer PRIVATE GLEW_STATIC)
+
 if(WIN32)
     target_link_libraries(lunar_viewer PRIVATE
         ole32
         windowscodecs
+        Dwmapi
     )
 endif()
 
@@ -81,11 +84,14 @@ target_link_libraries(view_sphere PRIVATE  # <-- Added PRIVATE keyword
     # REMOVED generator expressions for windows libs 
 )
 
+target_compile_definitions(view_sphere PRIVATE GLEW_STATIC)
+
 # --- ADDED THIS BLOCK to properly link view_sphere ---
 if(WIN32)
     target_link_libraries(view_sphere PRIVATE
         ole32
         windowscodecs
+        Dwmapi
     )
 endif()
 

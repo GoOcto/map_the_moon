@@ -10,6 +10,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "application.hpp"
+#include "font_overlay.hpp"
 #include "mesh.hpp"
 #include "shader.hpp"
 #include "terrain_dataset.hpp"
@@ -19,7 +20,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <exception>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -54,10 +57,12 @@ const char *kVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in float aElevation;
+layout (location = 2) in vec3 aColor;
 
 out float elevation;
 out vec3 FragPos;
 out vec3 WorldPos;
+out vec3 vertexColor;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -95,6 +100,7 @@ void main() {
     WorldPos = vec3(world);
     FragPos = WorldPos;
     elevation = aElevation;
+    vertexColor = aColor;
     gl_Position = projection * view * world;
 }
 )";
@@ -104,6 +110,7 @@ const char *kFragmentShaderSource = R"(
 in float elevation;
 in vec3 FragPos;
 in vec3 WorldPos;
+in vec3 vertexColor;
 out vec4 FragColor;
 
 uniform float minElevation;
@@ -121,6 +128,7 @@ vec3 getTerrainColor(float normalized) {
     vec3 white = vec3(1.0, 1.0, 1.0);
 
     float scaled = normalized * 4.0;
+
     int idx = int(floor(scaled));
     idx = clamp(idx, 0, 4);
     float t = scaled - float(idx);
@@ -133,7 +141,8 @@ void main() {
     float normalized = (elevation - minElevation) / (maxElevation - minElevation);
     normalized = clamp(normalized, 0.0, 1.0);
 
-    vec3 baseColor = getTerrainColor(normalized);
+    vec3 fallbackColor = getTerrainColor(normalized);
+    vec3 baseColor = mix(fallbackColor, vertexColor, 0.85);
 
     vec3 dFdxPos = dFdx(WorldPos);
     vec3 dFdyPos = dFdy(WorldPos);
@@ -162,6 +171,7 @@ class LunarViewerApp : public Application {
     LunarViewerApp(const char *windowTitle, std::string dataRoot)
         : Application(windowTitle), dataRoot_(std::move(dataRoot)) // Store dataRoot
     {
+        ColorMapSampler::setDataRoot(dataRoot_);
         m_terrain = std::make_unique<TerrainLoader>(dataRoot_);
     }
 
@@ -174,7 +184,7 @@ class LunarViewerApp : public Application {
         logCurrentCoordinates();
         loadTerrain();
         mesh->uploadData();
-        mesh->setupVertexAttributes({3, 1});
+        mesh->setupVertexAttributes({3, 1, 3});
 
         shader->use();
         modelLoc_ = shader->getUniformLocation("model");
@@ -185,6 +195,10 @@ class LunarViewerApp : public Application {
         lightDirLoc_ = shader->getUniformLocation("lightDirection");
         curvatureLoc_ = shader->getUniformLocation("uCurvature");
         meshCenterLoc_ = shader->getUniformLocation("uMeshCenter");
+
+        screenSize_ = glm::vec2(static_cast<float>(window->currentWidth), static_cast<float>(window->currentHeight));
+        fpsOverlay_.initialize(dataRoot_ + "fonts/ProggyClean.ttf");
+        fpsOverlay_.setScreenSize(screenSize_);
 
         lightDirection_ = glm::normalize(
             glm::vec3(std::cos(glm::radians(kLightAngleDegrees)), 0.0f, std::sin(glm::radians(kLightAngleDegrees))));
@@ -200,6 +214,7 @@ class LunarViewerApp : public Application {
         // camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
         // camera->updateVectors();
         // camera->speed = input->isKeyPressed(GLFW_KEY_LEFT_SHIFT) ? kShiftSpeed : kNormalSpeed;
+        fpsOverlay_.update(deltaTime);
 
         if (needsReload_) {
             reloadTerrain();
@@ -212,6 +227,10 @@ class LunarViewerApp : public Application {
         const glm::mat4 model = glm::mat4(1.0f);
         const glm::mat4 view = getViewMatrix();
         const glm::mat4 projection = getProjectionMatrix();
+
+        FontOverlay fpsOverlay_;
+        glm::vec2 screenSize_{static_cast<float>(Window::DEFAULT_WIDTH), static_cast<float>(Window::DEFAULT_HEIGHT)};
+        std::string overlayStatusLine_;
 
         glUniformMatrix4fv(modelLoc_, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc_, 1, GL_FALSE, glm::value_ptr(view));
@@ -231,6 +250,8 @@ class LunarViewerApp : public Application {
         }
 
         mesh->draw();
+        updateOverlayStatus();
+        fpsOverlay_.render();
     }
 
     void keyCallback(GLFWwindow *w, int key, int scancode, int action, int mods) override {
@@ -246,10 +267,10 @@ class LunarViewerApp : public Application {
             switch (key) {
 
             case GLFW_KEY_KP_4:
-                adjustLongitude(kLongitudeStepDegrees * samplingStep_);
+                adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
                 break;
             case GLFW_KEY_KP_6:
-                adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
+                adjustLongitude(kLongitudeStepDegrees * samplingStep_);
                 break;
             case GLFW_KEY_KP_8:
                 adjustLatitude(kLatitudeStepDegrees * samplingStep_);
@@ -276,6 +297,12 @@ class LunarViewerApp : public Application {
                 break;
             }
         }
+    }
+
+    void framebufferSizeCallback(GLFWwindow *w, int width, int height) override {
+        Application::framebufferSizeCallback(w, width, height);
+        screenSize_.x = static_cast<float>(std::max(width, 1));
+        screenSize_.y = static_cast<float>(std::max(height, 1));
     }
 
     void mouseCallback(GLFWwindow *w, double xpos, double ypos) override {
@@ -409,9 +436,43 @@ class LunarViewerApp : public Application {
         curvaturePerUnit_ = std::max(curvatureLon, curvatureLat);
     }
 
+    void updateOverlayStatus() {
+        static std::string remember = "";
+        const std::string formatted = buildStatusString();
+        if (formatted != remember) {
+            remember = formatted;
+            std::cout << formatted << std::endl;
+        }
+        // fpsOverlay_.setInfoLines({formatted});
+        // fpsOverlay_.update(12);
+    }
+
+    std::string buildStatusString() const {
+        auto formatHemisphere = [](double value, char positive, char negative) {
+            const char hemi = value >= 0.0 ? positive : negative;
+            const double absValue = std::abs(value);
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(2) << absValue << " deg" << hemi;
+            return oss.str();
+        };
+
+        double signedLongitude = povLongitudeDegrees_;
+        if (signedLongitude > 180.0) {
+            signedLongitude -= 360.0;
+        }
+
+        std::ostringstream oss;
+        oss << "Center " << formatHemisphere(povLatitudeDegrees_, 'N', 'S') << ' '
+            << formatHemisphere(signedLongitude, 'E', 'W');
+        return oss.str();
+    }
+
     std::unique_ptr<TerrainLoader> m_terrain;
     std::string dataRoot_;
     std::vector<float> elevationData_;
+
+    glm::vec2 screenSize_{static_cast<float>(Window::DEFAULT_WIDTH), static_cast<float>(Window::DEFAULT_HEIGHT)};
+    FontOverlay fpsOverlay_;
 
     int width_ = 1024;
     int height_ = 1024;
@@ -438,7 +499,7 @@ class LunarViewerApp : public Application {
 };
 
 int main(int argc, char **argv) {
-    const char *defaultDataRoot = ".data/proc";
+    const char *defaultDataRoot = "../";
     std::string dataRoot = (argc > 1) ? argv[1] : defaultDataRoot;
 
     try {
