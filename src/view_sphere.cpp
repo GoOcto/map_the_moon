@@ -14,17 +14,20 @@
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <cstddef>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <random>
 #include <vector>
+#include <system_error>
 
 
 namespace {
 
 // --- CONSTANTS ---
 constexpr float kSphereRadius = 1737.4f;
-constexpr float kMinCameraDistance = 1745.0f;
+constexpr float kMinCameraDistance = 1750.0f;
 constexpr float kMaxCameraDistance = 20000.0f;
 constexpr float kScrollMinSpeed = 1.0f;
 constexpr float kScrollMaxSpeed = 2000.0f;
@@ -32,6 +35,7 @@ constexpr float kOrbitMinSpeedDegreesPerSecond =  0.2f;
 constexpr float kOrbitMaxSpeedDegreesPerSecond = 90.0f;
 constexpr float kDistanceChangePerSecond = 1500.0f;
 constexpr float kPitchLimitDegrees = 89.0f;
+constexpr std::size_t kMaxTerrainTilesCached = 256;
 
 // --- SHADERS ---
 
@@ -106,7 +110,14 @@ protected:
 
         shader = std::make_unique<ShaderProgram>(kVertexShaderSource, kFragmentShaderSource);
 
-        sphere_ = std::make_unique<Sphere>(kSphereRadius);
+        const std::string terrainRoot = locateTerrainDataRoot();
+        if (!terrainRoot.empty()) {
+            std::cout << "Terrain data root: " << terrainRoot << std::endl;
+            sphere_ = std::make_unique<Sphere>(kSphereRadius, terrainRoot, kMaxTerrainTilesCached);
+        } else {
+            std::cout << "Terrain data root not found; rendering base sphere." << std::endl;
+            sphere_ = std::make_unique<Sphere>(kSphereRadius);
+        }
 
         shader->use();
         modelLoc_ = shader->getUniformLocation("model");
@@ -218,6 +229,23 @@ protected:
     }
 
 private:
+    std::string locateTerrainDataRoot() const {
+        std::vector<std::filesystem::path> candidates;
+        //candidates.emplace_back(".data/proc");  // currently out because it is very inefficient
+
+        for (const auto& candidate : candidates) {
+            std::error_code ec;
+            if (!candidate.empty() && std::filesystem::exists(candidate, ec) && std::filesystem::is_directory(candidate, ec)) {
+                auto normalized = std::filesystem::weakly_canonical(candidate, ec);
+                if (ec) {
+                    normalized = candidate.lexically_normal();
+                }
+                return normalized.string();
+            }
+        }
+        return {};
+    }
+
     void handleCameraInput(float deltaTime) {
         bool updated = false;
         const float orbitSpeed = computeOrbitSpeed();

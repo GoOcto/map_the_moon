@@ -11,22 +11,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "terrain_dataset.hpp"
+
 class TerrainLoader {
 public:
-    struct TileInfo {
-        std::string filename;
-        double minLatitude;   // degrees
-        double maxLatitude;   // degrees
-        double minLongitude;  // degrees in [0, 360)
-        double maxLongitude;  // degrees in [0, 360)
-    };
-
-    // --- Constants ---
-    static constexpr int CHUNK_SIZE = 512;
-    static constexpr int TILE_WIDTH = 23040;
-    static constexpr int TILE_HEIGHT = 15360;
-    static constexpr int NUM_CHUNKS_X = TILE_WIDTH / CHUNK_SIZE;
-    static constexpr int NUM_CHUNKS_Y = TILE_HEIGHT / CHUNK_SIZE;
+    using TileInfo = terrain::TileMetadata;
 
 
     // --- State for Tile Caching (internal) ---
@@ -54,8 +43,8 @@ public:
      * @return A std::vector<float> of elevation data in meters.
      */
     std::vector<float> loadOrUpdateTerrain(double povLatDegrees, double povLonDegrees, int width, int height, int steps) {
-        
-        const TileInfo* newTile = findTile(povLatDegrees, povLonDegrees);
+
+        const TileInfo* newTile = terrain::findTile(povLatDegrees, povLonDegrees);
         if (!newTile) {
             std::cerr << "No terrain tile available for new location." << std::endl;
             // Return old data if we have it, otherwise an empty vector
@@ -200,7 +189,7 @@ private:
                 const int srcX = startX + x * steps;
                 const size_t dataIndex = static_cast<size_t>(row) * width + x;
 
-                if (srcY >= 0 && srcY < TILE_HEIGHT && srcX >= 0 && srcX < TILE_WIDTH) {
+                if (srcY >= 0 && srcY < terrain::TILE_HEIGHT && srcX >= 0 && srcX < terrain::TILE_WIDTH) {
                     // This pixel is within the main tile, use the efficient chunked reader
                     newData[dataIndex] = getHeightFromChunk(*mainStream, srcX, srcY);
                 } else {
@@ -224,6 +213,7 @@ private:
         m_currentCenterY = centerY;
         m_currentTileFile = tile.filename;
         m_isInitialized = true;
+        clearCachedChunks();
     }
 
     /**
@@ -274,11 +264,11 @@ private:
         const int effectiveNewCenterY = m_currentCenterY + gridShiftY * steps;
         const int effectiveNewStartX = effectiveNewCenterX - (width * steps) / 2;
         const int effectiveNewStartY = effectiveNewCenterY - (height * steps) / 2;
-        
-        const double lonSpan = longitudeSpan(tile);
+
+        const double lonSpan = terrain::longitudeSpan(tile);
         const double latSpan = tile.maxLatitude - tile.minLatitude;
-        const double degPerPixelX = lonSpan / static_cast<double>(TILE_WIDTH);
-        const double degPerPixelY = latSpan / static_cast<double>(TILE_HEIGHT);
+        const double degPerPixelX = lonSpan / static_cast<double>(terrain::TILE_WIDTH);
+        const double degPerPixelY = latSpan / static_cast<double>(terrain::TILE_HEIGHT);
 
         TileStream* mainStream = ensureTileStream(tile);
         if (!mainStream) return; // Error, just keep old data
@@ -291,7 +281,7 @@ private:
                 const int srcY = effectiveNewStartY + y * steps;
                 const int srcX = effectiveNewStartX + x * steps;
 
-                if (srcY >= 0 && srcY < TILE_HEIGHT && srcX >= 0 && srcX < TILE_WIDTH) {
+                if (srcY >= 0 && srcY < terrain::TILE_HEIGHT && srcX >= 0 && srcX < terrain::TILE_WIDTH) {
                     newData[dataIndex] = getHeightFromChunk(*mainStream, srcX, srcY);
                 } else {
                     const double sampleLat = tile.maxLatitude - static_cast<double>(srcY) * degPerPixelY;
@@ -306,6 +296,7 @@ private:
         m_currentLon = povLon;
         m_currentCenterX = effectiveNewCenterX;
         m_currentCenterY = effectiveNewCenterY;
+        clearCachedChunks();
     }
 
     // --- Tile Loading Helpers ---
@@ -316,7 +307,7 @@ private:
         }
 
         TileStream stream;
-        const double localLonSpan = longitudeSpan(info);
+        const double localLonSpan = terrain::longitudeSpan(info);
         const double localLatSpan = info.maxLatitude - info.minLatitude;
         if (localLonSpan <= 0.0 || localLatSpan <= 0.0) {
             throw std::runtime_error("Invalid tile metadata: zero span");
@@ -329,8 +320,8 @@ private:
             return nullptr;
         }
 
-        stream.pixelsPerDegreeX = static_cast<double>(TILE_WIDTH) / localLonSpan;
-        stream.pixelsPerDegreeY = static_cast<double>(TILE_HEIGHT) / localLatSpan;
+        stream.pixelsPerDegreeX = static_cast<double>(terrain::TILE_WIDTH) / localLonSpan;
+        stream.pixelsPerDegreeY = static_cast<double>(terrain::TILE_HEIGHT) / localLatSpan;
         stream.degreesPerPixelX = 1.0 / stream.pixelsPerDegreeX;
         stream.degreesPerPixelY = 1.0 / stream.pixelsPerDegreeY;
 
@@ -339,7 +330,7 @@ private:
     }
 
     const std::vector<float>* fetchChunk(TileStream& stream, int chunkX, int chunkY) {
-        if (chunkX < 0 || chunkX >= NUM_CHUNKS_X || chunkY < 0 || chunkY >= NUM_CHUNKS_Y) {
+        if (chunkX < 0 || chunkX >= terrain::NUM_CHUNKS_X || chunkY < 0 || chunkY >= terrain::NUM_CHUNKS_Y) {
             return nullptr;
         }
 
@@ -348,10 +339,10 @@ private:
             return &cached->second;
         }
 
-        const int linearChunkIndex = chunkY * NUM_CHUNKS_X + chunkX;
-        const std::streamoff byteOffset = static_cast<std::streamoff>(linearChunkIndex) * CHUNK_SIZE * CHUNK_SIZE * sizeof(float);
-        
-        std::vector<float> chunkData(CHUNK_SIZE * CHUNK_SIZE);
+        const int linearChunkIndex = chunkY * terrain::NUM_CHUNKS_X + chunkX;
+        const std::streamoff byteOffset = static_cast<std::streamoff>(linearChunkIndex) * terrain::CHUNK_SIZE * terrain::CHUNK_SIZE * sizeof(float);
+
+        std::vector<float> chunkData(terrain::CHUNK_SIZE * terrain::CHUNK_SIZE);
 
         stream.file.clear();
         stream.file.seekg(byteOffset);
@@ -369,17 +360,17 @@ private:
 
     // Helper to get a single height value using the chunk system.
     float getHeightFromChunk(TileStream& stream, int pixelX, int pixelY) {
-        const int chunkX = pixelX / CHUNK_SIZE;
-        const int chunkY = pixelY / CHUNK_SIZE;
+        const int chunkX = pixelX / terrain::CHUNK_SIZE;
+        const int chunkY = pixelY / terrain::CHUNK_SIZE;
 
         const std::vector<float>* chunkData = fetchChunk(stream, chunkX, chunkY);
         if (!chunkData) {
             return 0.0f; // Default value on error
         }
 
-        const int innerX = pixelX % CHUNK_SIZE;
-        const int innerY = pixelY % CHUNK_SIZE;
-        const int innerIndex = innerY * CHUNK_SIZE + innerX;
+        const int innerX = pixelX % terrain::CHUNK_SIZE;
+        const int innerY = pixelY % terrain::CHUNK_SIZE;
+        const int innerIndex = innerY * terrain::CHUNK_SIZE + innerX;
 
         return (*chunkData)[innerIndex];
     }
@@ -390,8 +381,8 @@ private:
             return 0.0f;
         }
 
-        const double wrappedLon = wrapLongitude(lonDeg);
-        const TileInfo* sampleTile = findTile(latDeg, lonDeg);
+        const double wrappedLon = terrain::wrapLongitude(lonDeg);
+        const TileInfo* sampleTile = terrain::findTile(latDeg, lonDeg);
         if (!sampleTile) {
             if (!m_warnedMissingTile) {
                 std::cerr << "Warning: No DEM tile for lat=" << latDeg
@@ -406,14 +397,14 @@ private:
             return 0.0f;
         }
         
-        const double lonOffset = longitudeOffsetWithinTile(*sampleTile, wrappedLon);
+        const double lonOffset = terrain::longitudeOffsetWithinTile(*sampleTile, wrappedLon);
         const double clampedSampleLat = std::clamp(latDeg, sampleTile->minLatitude, sampleTile->maxLatitude);
 
         int pixelX = static_cast<int>(std::round(lonOffset * stream->pixelsPerDegreeX));
-        pixelX = std::clamp(pixelX, 0, TILE_WIDTH - 1);
+        pixelX = std::clamp(pixelX, 0, terrain::TILE_WIDTH - 1);
 
         int pixelY = static_cast<int>(std::round((sampleTile->maxLatitude - clampedSampleLat) * stream->pixelsPerDegreeY));
-        pixelY = std::clamp(pixelY, 0, TILE_HEIGHT - 1);
+        pixelY = std::clamp(pixelY, 0, terrain::TILE_HEIGHT - 1);
 
         return getHeightFromChunk(*stream, pixelX, pixelY);
     }
@@ -424,22 +415,22 @@ private:
                              int& outStartX, int& outStartY,
                              double& outDegPerPixelX, double& outDegPerPixelY)
     {
-        const double lonSpan = longitudeSpan(tile);
+        const double lonSpan = terrain::longitudeSpan(tile);
         const double latSpan = tile.maxLatitude - tile.minLatitude;
         
-        const double pixelsPerDegreeX = static_cast<double>(TILE_WIDTH) / lonSpan;
-        const double pixelsPerDegreeY = static_cast<double>(TILE_HEIGHT) / latSpan;
+        const double pixelsPerDegreeX = static_cast<double>(terrain::TILE_WIDTH) / lonSpan;
+        const double pixelsPerDegreeY = static_cast<double>(terrain::TILE_HEIGHT) / latSpan;
         outDegPerPixelX = 1.0 / pixelsPerDegreeX;
         outDegPerPixelY = 1.0 / pixelsPerDegreeY;
 
-        const double lonOffsetDegrees = longitudeOffsetWithinTile(tile, povLon);
+        const double lonOffsetDegrees = terrain::longitudeOffsetWithinTile(tile, povLon);
         const double clampedLat = std::clamp(povLat, tile.minLatitude, tile.maxLatitude);
 
         outCenterX = static_cast<int>(std::round(lonOffsetDegrees * pixelsPerDegreeX));
         outCenterY = static_cast<int>(std::round((tile.maxLatitude - clampedLat) * pixelsPerDegreeY));
 
-        outCenterX = std::clamp(outCenterX, 0, TILE_WIDTH - 1);
-        outCenterY = std::clamp(outCenterY, 0, TILE_HEIGHT - 1);
+        outCenterX = std::clamp(outCenterX, 0, terrain::TILE_WIDTH - 1);
+        outCenterY = std::clamp(outCenterY, 0, terrain::TILE_HEIGHT - 1);
 
         const int sampleWidth = width * steps;
         const int sampleHeight = height * steps;
@@ -447,105 +438,10 @@ private:
         outStartY = outCenterY - sampleHeight / 2;
     }
 
-
-    // --- Static Geo Helpers (can be private or public, static) ---
-    static constexpr double kLongitudeWrap = 360.0;
-
-    static const std::vector<TileInfo>& tiles() {
-        static const std::vector<TileInfo> kTiles = {
-            {"SLDEM2015_512_60S_30S_000_045_CHUNKED_512.DAT", -60.0, -30.0, 0.0, 45.0},
-            {"SLDEM2015_512_60S_30S_045_090_CHUNKED_512.DAT", -60.0, -30.0, 45.0, 90.0},
-            {"SLDEM2015_512_60S_30S_090_135_CHUNKED_512.DAT", -60.0, -30.0, 90.0, 135.0},
-            {"SLDEM2015_512_60S_30S_135_180_CHUNKED_512.DAT", -60.0, -30.0, 135.0, 180.0},
-            {"SLDEM2015_512_60S_30S_180_225_CHUNKED_512.DAT", -60.0, -30.0, 180.0, 225.0},
-            {"SLDEM2015_512_60S_30S_225_270_CHUNKED_512.DAT", -60.0, -30.0, 225.0, 270.0},
-            {"SLDEM2015_512_60S_30S_270_315_CHUNKED_512.DAT", -60.0, -30.0, 270.0, 315.0},
-            {"SLDEM2015_512_60S_30S_315_360_CHUNKED_512.DAT", -60.0, -30.0, 315.0, 360.0},
-
-            {"SLDEM2015_512_30S_00S_000_045_CHUNKED_512.DAT", -30.0, 0.0, 0.0, 45.0},
-            {"SLDEM2015_512_30S_00S_045_090_CHUNKED_512.DAT", -30.0, 0.0, 45.0, 90.0},
-            {"SLDEM2015_512_30S_00S_090_135_CHUNKED_512.DAT", -30.0, 0.0, 90.0, 135.0},
-            {"SLDEM2015_512_30S_00S_135_180_CHUNKED_512.DAT", -30.0, 0.0, 135.0, 180.0},
-            {"SLDEM2015_512_30S_00S_180_225_CHUNKED_512.DAT", -30.0, 0.0, 180.0, 225.0},
-            {"SLDEM2015_512_30S_00S_225_270_CHUNKED_512.DAT", -30.0, 0.0, 225.0, 270.0},
-            {"SLDEM2015_512_30S_00S_270_315_CHUNKED_512.DAT", -30.0, 0.0, 270.0, 315.0},
-            {"SLDEM2015_512_30S_00S_315_360_CHUNKED_512.DAT", -30.0, 0.0, 315.0, 360.0},
-
-            {"SLDEM2015_512_00N_30N_000_045_CHUNKED_512.DAT", 0.0, 30.0, 0.0, 45.0},
-            {"SLDEM2015_512_00N_30N_045_090_CHUNKED_512.DAT", 0.0, 30.0, 45.0, 90.0},
-            {"SLDEM2015_512_00N_30N_090_135_CHUNKED_512.DAT", 0.0, 30.0, 90.0, 135.0},
-            {"SLDEM2015_512_00N_30N_135_180_CHUNKED_512.DAT", 0.0, 30.0, 135.0, 180.0},
-            {"SLDEM2015_512_00N_30N_180_225_CHUNKED_512.DAT", 0.0, 30.0, 180.0, 225.0},
-            {"SLDEM2015_512_00N_30N_225_270_CHUNKED_512.DAT", 0.0, 30.0, 225.0, 270.0},
-            {"SLDEM2015_512_00N_30N_270_315_CHUNKED_512.DAT", 0.0, 30.0, 270.0, 315.0},
-            {"SLDEM2015_512_00N_30N_315_360_CHUNKED_512.DAT", 0.0, 30.0, 315.0, 360.0},
-
-            {"SLDEM2015_512_30N_60N_000_045_CHUNKED_512.DAT", 30.0, 60.0, 0.0, 45.0},
-            {"SLDEM2015_512_30N_60N_045_090_CHUNKED_512.DAT", 30.0, 60.0, 45.0, 90.0},
-            {"SLDEM2015_512_30N_60N_090_135_CHUNKED_512.DAT", 30.0, 60.0, 90.0, 135.0},
-            {"SLDEM2015_512_30N_60N_135_180_CHUNKED_512.DAT", 30.0, 60.0, 135.0, 180.0},
-            {"SLDEM2015_512_30N_60N_180_225_CHUNKED_512.DAT", 30.0, 60.0, 180.0, 225.0},
-            {"SLDEM2015_512_30N_60N_225_270_CHUNKED_512.DAT", 30.0, 60.0, 225.0, 270.0},
-            {"SLDEM2015_512_30N_60N_270_315_CHUNKED_512.DAT", 30.0, 60.0, 270.0, 315.0},
-            {"SLDEM2015_512_30N_60N_315_360_CHUNKED_512.DAT", 30.0, 60.0, 315.0, 360.0},
-        };
-        return kTiles;
-    }
-
-    static double wrapLongitude(double lonDegrees) {
-        double wrapped = std::fmod(lonDegrees, kLongitudeWrap);
-        if (wrapped < 0.0) {
-            wrapped += kLongitudeWrap;
+    void clearCachedChunks() {
+        for (auto& entry : m_tileCache) {
+            entry.second.chunkCache.clear();
+            entry.second.chunkCache.rehash(0);
         }
-        return wrapped;
-    }
-
-    static double longitudeSpan(const TileInfo& tile) {
-        double span = tile.maxLongitude - tile.minLongitude;
-        if (span <= 0.0) {
-            span += kLongitudeWrap;
-        }
-        return span;
-    }
-
-    static bool longitudeInTile(const TileInfo& tile, double lon) {
-        if (tile.minLongitude <= tile.maxLongitude) {
-            return lon >= tile.minLongitude && lon <= tile.maxLongitude;
-        }
-        return lon >= tile.minLongitude || lon <= tile.maxLongitude;
-    }
-
-    static double longitudeOffsetWithinTile(const TileInfo& tile, double lonDegrees) {
-        const double lon = wrapLongitude(lonDegrees);
-        double delta = lon - tile.minLongitude;
-        if (tile.minLongitude > tile.maxLongitude) {
-            if (delta < 0.0) {
-                delta += kLongitudeWrap;
-            }
-        }
-        double span = longitudeSpan(tile);
-        if (delta < 0.0) {
-            delta = 0.0;
-        }
-        if (delta > span) {
-            delta = span;
-        }
-        return delta;
-    }
-
-    static const TileInfo* findTile(double latDegrees, double lonDegrees) {
-        if (latDegrees < -60.0 || latDegrees > 60.0) {
-            return nullptr;
-        }
-
-        const double wrappedLon = wrapLongitude(lonDegrees);
-
-        for (const auto& tile : tiles()) {
-            if (latDegrees >= tile.minLatitude - 1e-6 && latDegrees <= tile.maxLatitude + 1e-6 &&
-                longitudeInTile(tile, wrappedLon)) {
-                return &tile;
-            }
-        }
-        return nullptr;
     }
 };

@@ -8,10 +8,13 @@
 #include <random>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <memory>
 
 #include "mesh.hpp"
 #include "camera.hpp"
 #include "shader.hpp"
+#include "terrain_tile_cache.hpp"
 
 namespace {
     // --- CONSTANTS ---
@@ -65,8 +68,14 @@ namespace {
 
 class Sphere {
 public:
-    Sphere(float radius = kDefaultSphereRadius) : radius_(radius) {
+    Sphere(float radius = kDefaultSphereRadius,
+           std::string terrainDataRoot = std::string{},
+           std::size_t maxCachedTiles = 128)
+        : radius_(radius) {
         mesh_ = std::make_unique<Mesh>();
+        if (!terrainDataRoot.empty()) {
+            terrainCache_ = std::make_unique<TerrainTileCache>(terrainDataRoot, maxCachedTiles);
+        }
         initializeTiles();
         updateLODs(nullptr, {0,0}, true);
     }
@@ -160,7 +169,7 @@ private:
     void initializeTiles() {
         tiles_.clear();
         std::mt19937 rng(123456u);
-        std::uniform_real_distribution<float> colorDist(0.25f, 0.95f);
+        std::uniform_real_distribution<float> colorDist(0.45f, 0.75f);
 
         const int latTileCount = 180 / kTileLatitudeDegrees;
         const int lonTileCount = 360 / kTileLongitudeDegrees;
@@ -219,12 +228,32 @@ private:
         tile.vertices.assign(static_cast<size_t>(rows * cols * 9), 0.0f);
         tile.indices.clear();
         tile.indices.reserve(static_cast<size_t>((rows - 1) * (cols - 1) * 6));
-        
+
+        const TerrainTileCache::TileSample* heightSample = nullptr;
+        if (terrainCache_) {
+            TerrainTileCache::TileRequest request;
+            request.latStartDeg = tile.latStartDeg;
+            request.lonStartDeg = tile.lonStartDeg;
+            request.resolution = rows;
+            heightSample = terrainCache_->fetchTile(request);
+            if (heightSample && heightSample->resolution != rows) {
+                heightSample = nullptr;
+            }
+        }
+
         for (int r = 0; r < rows; ++r) {
             const float lat = latStartRad + static_cast<float>(r) * latStep;
             for (int c = 0; c < cols; ++c) {
                 const float lon = lonStartRad + static_cast<float>(c) * lonStep;
-                const glm::vec3 pos = SphericalToCartesian(radius_, lat, lon);
+                float sampleRadius = radius_;
+                if (heightSample) {
+                    const std::size_t idx = static_cast<std::size_t>(r) * rows + c;
+                    if (idx < heightSample->heights.size()) {
+                        const float heightMeters = heightSample->heights[idx];
+                        sampleRadius += heightMeters * 0.001f;
+                    }
+                }
+                const glm::vec3 pos = SphericalToCartesian(sampleRadius, lat, lon);
                 const glm::vec3 norm = glm::normalize(pos);
                 
                 size_t baseIdx = (r * cols + c) * 9;
@@ -283,6 +312,7 @@ private:
     float radius_;
     std::vector<Tile> tiles_;
     std::unique_ptr<Mesh> mesh_;
+    std::unique_ptr<TerrainTileCache> terrainCache_;
     bool meshDirty_ = true;
     bool attributesConfigured_ = false;
 };

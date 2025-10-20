@@ -12,6 +12,7 @@
 #include "application.hpp"
 #include "mesh.hpp"
 #include "shader.hpp"
+#include "terrain_dataset.hpp"
 #include "terrain_loader.hpp"
 
 #include <algorithm>
@@ -381,8 +382,15 @@ private:
     }
 
     void updateCurvatureAmount() {
-        const float degreesPerPixelLon = 45.0f / static_cast<float>(TerrainLoader::TILE_WIDTH);
-        const float degreesPerPixelLat = 30.0f / static_cast<float>(TerrainLoader::TILE_HEIGHT);
+        const terrain::TileMetadata* tile = terrain::findTile(povLatitudeDegrees_, povLongitudeDegrees_);
+        float degreesPerPixelLon = 45.0f / static_cast<float>(terrain::TILE_WIDTH);
+        float degreesPerPixelLat = 30.0f / static_cast<float>(terrain::TILE_HEIGHT);
+        if (tile) {
+            const double lonSpan = terrain::longitudeSpan(*tile);
+            const double latSpan = tile->maxLatitude - tile->minLatitude;
+            degreesPerPixelLon = static_cast<float>(lonSpan / static_cast<double>(terrain::TILE_WIDTH));
+            degreesPerPixelLat = static_cast<float>(latSpan / static_cast<double>(terrain::TILE_HEIGHT));
+        }
 
         const float horizontalSamples = static_cast<float>(width_) * static_cast<float>(samplingStep_);
         const float verticalSamples = static_cast<float>(height_) * static_cast<float>(samplingStep_);
