@@ -37,9 +37,7 @@ class Application {
             camera = std::make_unique<Camera>();
 
             initializeGL();
-
-            mesh = std::make_unique<Mesh>(); // this line makes the exe exit with code 0xC0000005, notice it does not
-                                             // get caught by the catch below
+            mesh = std::make_unique<Mesh>();
         } catch (const std::exception& e) {
             std::cerr << "Failed to initialize application: " << e.what() << std::endl;
             throw;
