@@ -47,7 +47,7 @@ class TerrainLoader {
     std::vector<float> loadOrUpdateTerrain(double povLatDegrees, double povLonDegrees, int width, int height,
                                            int steps) {
 
-        const TileInfo *newTile = terrain::findTile(povLatDegrees, povLonDegrees);
+        const TileInfo* newTile = terrain::findTile(povLatDegrees, povLonDegrees);
         if (!newTile) {
             std::cerr << "No terrain tile available for new location." << std::endl;
             // Return old data if we have it, otherwise an empty vector
@@ -72,8 +72,8 @@ class TerrainLoader {
      * @brief (STATIC) Generates vertex and index buffers from elevation data.
      * Your app calls this.
      */
-    static void generateMesh(const std::vector<float> &elevationData, int width, int height,
-                             std::vector<float> &vertices, std::vector<unsigned int> &indices) {
+    static void generateMesh(const std::vector<float>& elevationData, int width, int height,
+                             std::vector<float>& vertices, std::vector<unsigned int>& indices) {
         std::cout << "Generating mesh..." << std::endl;
 
         float scaleZ = 1000.f / 30.325f; //  30.325km/degree at the equator or 30.325/512km per sample, because grid
@@ -130,8 +130,8 @@ class TerrainLoader {
      * @brief (STATIC) Updates existing vertex Z/W components from new elevation data.
      * Your app calls this.
      */
-    static void updateMeshElevations(const std::vector<float> &elevationData, int width, int height,
-                                     std::vector<float> &vertices) {
+    static void updateMeshElevations(const std::vector<float>& elevationData, int width, int height,
+                                     std::vector<float>& vertices) {
         float scaleZ = 1000.f / 30.325f;
 
         for (int y = 0; y < height; y++) {
@@ -148,15 +148,15 @@ class TerrainLoader {
         }
     }
 
-    static void updateMeshColors(const std::vector<std::array<float, 3>> &colorData, int width, int height,
-                                 std::vector<float> &vertices) {
+    static void updateMeshColors(const std::vector<std::array<float, 3>>& colorData, int width, int height,
+                                 std::vector<float>& vertices) {
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 size_t vertexIndex = (static_cast<size_t>(y) * width + x) * 7;
 
                 // Ensure vertices vector is large enough (should be)
                 if (vertexIndex + 6 < vertices.size()) {
-                    const auto &color = colorData[static_cast<size_t>(y) * width + x];
+                    const auto& color = colorData[static_cast<size_t>(y) * width + x];
                     vertices[vertexIndex + 4] = color[0];
                     vertices[vertexIndex + 5] = color[1];
                     vertices[vertexIndex + 6] = color[2];
@@ -189,7 +189,7 @@ class TerrainLoader {
     /**
      * @brief Performs a full, fresh load. Updates internal m_elevationData.
      */
-    void doFullLoad(double povLat, double povLon, int width, int height, int steps, const TileInfo &tile) {
+    void doFullLoad(double povLat, double povLon, int width, int height, int steps, const TileInfo& tile) {
         std::cout << "\nPerforming full terrain load..." << std::endl;
 
         int centerX, centerY, startX, startY;
@@ -198,7 +198,7 @@ class TerrainLoader {
                             degPerPixelY);
 
         std::vector<float> newData(static_cast<size_t>(width) * height, 0.0f);
-        TileStream *mainStream = ensureTileStream(tile);
+        TileStream* mainStream = ensureTileStream(tile);
         if (!mainStream) {
             std::cerr << "Error: Could not open main tile stream for: " << tile.filename << std::endl;
             if (!m_isInitialized)
@@ -243,7 +243,7 @@ class TerrainLoader {
     /**
      * @brief Performs an efficient "scrolling" update. Updates internal m_elevationData.
      */
-    void doScrollLoad(double povLat, double povLon, int width, int height, int steps, const TileInfo &tile) {
+    void doScrollLoad(double povLat, double povLon, int width, int height, int steps, const TileInfo& tile) {
 
         int newCenterX, newCenterY;
         // The rest of these are unused in this calculation but required by the function
@@ -294,7 +294,7 @@ class TerrainLoader {
         const double degPerPixelX = lonSpan / static_cast<double>(terrain::TILE_WIDTH);
         const double degPerPixelY = latSpan / static_cast<double>(terrain::TILE_HEIGHT);
 
-        TileStream *mainStream = ensureTileStream(tile);
+        TileStream* mainStream = ensureTileStream(tile);
         if (!mainStream)
             return; // Error, just keep old data
 
@@ -327,7 +327,7 @@ class TerrainLoader {
 
     // --- Tile Loading Helpers ---
 
-    TileStream *ensureTileStream(const TileInfo &info) {
+    TileStream* ensureTileStream(const TileInfo& info) {
         if (auto it = m_tileCache.find(info.filename); it != m_tileCache.end()) {
             return &it->second;
         }
@@ -355,7 +355,7 @@ class TerrainLoader {
         return &emplacedIt->second;
     }
 
-    const std::vector<float> *fetchChunk(TileStream &stream, int chunkX, int chunkY) {
+    const std::vector<float>* fetchChunk(TileStream& stream, int chunkX, int chunkY) {
         if (chunkX < 0 || chunkX >= terrain::NUM_CHUNKS_X || chunkY < 0 || chunkY >= terrain::NUM_CHUNKS_Y) {
             return nullptr;
         }
@@ -373,7 +373,7 @@ class TerrainLoader {
 
         stream.file.clear();
         stream.file.seekg(byteOffset);
-        stream.file.read(reinterpret_cast<char *>(chunkData.data()),
+        stream.file.read(reinterpret_cast<char*>(chunkData.data()),
                          static_cast<std::streamsize>(chunkData.size() * sizeof(float)));
 
         if (!stream.file) {
@@ -387,11 +387,11 @@ class TerrainLoader {
     }
 
     // Helper to get a single height value using the chunk system.
-    float getHeightFromChunk(TileStream &stream, int pixelX, int pixelY) {
+    float getHeightFromChunk(TileStream& stream, int pixelX, int pixelY) {
         const int chunkX = pixelX / terrain::CHUNK_SIZE;
         const int chunkY = pixelY / terrain::CHUNK_SIZE;
 
-        const std::vector<float> *chunkData = fetchChunk(stream, chunkX, chunkY);
+        const std::vector<float>* chunkData = fetchChunk(stream, chunkX, chunkY);
         if (!chunkData) {
             return 0.0f; // Default value on error
         }
@@ -409,7 +409,7 @@ class TerrainLoader {
         }
 
         const double wrappedLon = terrain::wrapLongitude(lonDeg);
-        const TileInfo *sampleTile = terrain::findTile(latDeg, lonDeg);
+        const TileInfo* sampleTile = terrain::findTile(latDeg, lonDeg);
         if (!sampleTile) {
             if (!m_warnedMissingTile) {
                 std::cerr << "Warning: No DEM tile for lat=" << latDeg << " lon=" << wrappedLon << std::endl;
@@ -418,7 +418,7 @@ class TerrainLoader {
             return 0.0f;
         }
 
-        TileStream *stream = ensureTileStream(*sampleTile);
+        TileStream* stream = ensureTileStream(*sampleTile);
         if (!stream) {
             return 0.0f;
         }
@@ -436,9 +436,9 @@ class TerrainLoader {
         return getHeightFromChunk(*stream, pixelX, pixelY);
     }
 
-    void calculateViewParams(const TileInfo &tile, double povLat, double povLon, int width, int height, int steps,
-                             int &outCenterX, int &outCenterY, int &outStartX, int &outStartY, double &outDegPerPixelX,
-                             double &outDegPerPixelY) {
+    void calculateViewParams(const TileInfo& tile, double povLat, double povLon, int width, int height, int steps,
+                             int& outCenterX, int& outCenterY, int& outStartX, int& outStartY, double& outDegPerPixelX,
+                             double& outDegPerPixelY) {
         const double lonSpan = terrain::longitudeSpan(tile);
         const double latSpan = tile.maxLatitude - tile.minLatitude;
 
@@ -463,7 +463,7 @@ class TerrainLoader {
     }
 
     void clearCachedChunks() {
-        for (auto &entry : m_tileCache) {
+        for (auto& entry : m_tileCache) {
             entry.second.chunkCache.clear();
             entry.second.chunkCache.rehash(0);
         }

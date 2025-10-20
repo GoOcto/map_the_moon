@@ -119,4 +119,4 @@ inline const TileMetadata* findTile(double latDegrees, double lonDegrees) {
     return nullptr;
 }
 
-}  // namespace terrain
+} // namespace terrain

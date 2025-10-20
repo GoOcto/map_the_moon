@@ -18,7 +18,7 @@
 #include <vector>
 
 class TerrainTileCache {
-public:
+  public:
     struct TileRequest {
         double latStartDeg = 0.0;
         double lonStartDeg = 0.0;
@@ -33,10 +33,11 @@ public:
     };
 
     TerrainTileCache(std::string dataRoot, std::size_t maxCachedTiles)
-        : dataRoot_(std::move(dataRoot)), maxCachedTiles_(std::max<std::size_t>(1, maxCachedTiles)) {}
+        : dataRoot_(std::move(dataRoot)), maxCachedTiles_(std::max<std::size_t>(1, maxCachedTiles)) {
+    }
 
-    TerrainTileCache(std::string dataRoot)
-        : TerrainTileCache(std::move(dataRoot), kDefaultMaxTiles) {}
+    TerrainTileCache(std::string dataRoot) : TerrainTileCache(std::move(dataRoot), kDefaultMaxTiles) {
+    }
 
     const TileSample* fetchTile(const TileRequest& request) {
         if (request.resolution <= 1) {
@@ -69,15 +70,14 @@ public:
         lruList_.clear();
     }
 
-private:
+  private:
     struct TileKey {
         int latDegStart = 0;
         int lonDegWrapped = 0;
         int resolution = 0;
 
         friend bool operator==(const TileKey& lhs, const TileKey& rhs) noexcept {
-            return lhs.latDegStart == rhs.latDegStart &&
-                   lhs.lonDegWrapped == rhs.lonDegWrapped &&
+            return lhs.latDegStart == rhs.latDegStart && lhs.lonDegWrapped == rhs.lonDegWrapped &&
                    lhs.resolution == rhs.resolution;
         }
     };
@@ -215,13 +215,15 @@ private:
         }
 
         const int linearIndex = chunkY * terrain::NUM_CHUNKS_X + chunkX;
-        const std::streamoff byteOffset = static_cast<std::streamoff>(linearIndex) * terrain::CHUNK_SIZE * terrain::CHUNK_SIZE * sizeof(float);
+        const std::streamoff byteOffset =
+            static_cast<std::streamoff>(linearIndex) * terrain::CHUNK_SIZE * terrain::CHUNK_SIZE * sizeof(float);
 
         std::vector<float> chunk(terrain::CHUNK_SIZE * terrain::CHUNK_SIZE);
 
         stream.file.clear();
         stream.file.seekg(byteOffset);
-        stream.file.read(reinterpret_cast<char*>(chunk.data()), static_cast<std::streamsize>(chunk.size() * sizeof(float)));
+        stream.file.read(reinterpret_cast<char*>(chunk.data()),
+                         static_cast<std::streamsize>(chunk.size() * sizeof(float)));
         if (!stream.file) {
             stream.file.clear();
             return nullptr;

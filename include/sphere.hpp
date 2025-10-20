@@ -1,75 +1,72 @@
 #pragma once
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <vector>
-#include <string>
-#include <random>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <memory>
+#include <random>
+#include <string>
+#include <vector>
 
-#include "mesh.hpp"
 #include "camera.hpp"
+#include "mesh.hpp"
 #include "shader.hpp"
 #include "terrain_tile_cache.hpp"
 
 namespace {
-    // --- CONSTANTS ---
-    constexpr float kDefaultSphereRadius = 1000.0f;
-    constexpr int kTileLatitudeDegrees = 1;
-    constexpr int kTileLongitudeDegrees = 1;
-    constexpr int kBaseTileResolution = 2;
-    constexpr int kBaseSegmentsPerEdge = (kBaseTileResolution > 1) ? (kBaseTileResolution - 1) : 1;
-    constexpr int kMaxTileExponent = 9; // Up to 512 segments per edge
-    constexpr float kTargetTrianglePixelWidth = 16.0f;
+// --- CONSTANTS ---
+constexpr float kDefaultSphereRadius = 1000.0f;
+constexpr int kTileLatitudeDegrees = 1;
+constexpr int kTileLongitudeDegrees = 1;
+constexpr int kBaseTileResolution = 2;
+constexpr int kBaseSegmentsPerEdge = (kBaseTileResolution > 1) ? (kBaseTileResolution - 1) : 1;
+constexpr int kMaxTileExponent = 9; // Up to 512 segments per edge
+constexpr float kTargetTrianglePixelWidth = 16.0f;
 
-    struct Tile {
-        float latStartDeg = 0.0f;
-        float lonStartDeg = 0.0f;
-        float latCenterRad = 0.0f;
-        glm::vec3 color{1.0f};
-        glm::vec3 centerDirection{0.0f, 0.0f, 1.0f};
-        glm::vec3 centerPosition{0.0f, 0.0f, kDefaultSphereRadius};
-        float widthWorld = 0.0f;
-        float heightWorld = 0.0f;
-        float maxWorldSpan = 0.0f;
-        int currentExponent = -1;
-        bool visible = true;
-        std::vector<float> vertices;
-        std::vector<unsigned int> indices;
-        size_t vertexCount = 0;
-    };
+struct Tile {
+    float latStartDeg = 0.0f;
+    float lonStartDeg = 0.0f;
+    float latCenterRad = 0.0f;
+    glm::vec3 color{1.0f};
+    glm::vec3 centerDirection{0.0f, 0.0f, 1.0f};
+    glm::vec3 centerPosition{0.0f, 0.0f, kDefaultSphereRadius};
+    float widthWorld = 0.0f;
+    float heightWorld = 0.0f;
+    float maxWorldSpan = 0.0f;
+    int currentExponent = -1;
+    bool visible = true;
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+    size_t vertexCount = 0;
+};
 
-    inline glm::vec3 SphericalToCartesian(float radius, float latitudeRad, float longitudeRad) {
-        const float cosLat = std::cos(latitudeRad);
-        const float sinLat = std::sin(latitudeRad);
-        const float cosLon = std::cos(longitudeRad);
-        const float sinLon = std::sin(longitudeRad);
+inline glm::vec3 SphericalToCartesian(float radius, float latitudeRad, float longitudeRad) {
+    const float cosLat = std::cos(latitudeRad);
+    const float sinLat = std::sin(latitudeRad);
+    const float cosLon = std::cos(longitudeRad);
+    const float sinLon = std::sin(longitudeRad);
 
-        return glm::vec3(radius * cosLat * cosLon,
-                         radius * cosLat * sinLon,
-                         radius * sinLat);
-    }
-
-    inline int DetermineExponentForTargetSegments(int targetSegments) {
-        targetSegments = std::max(targetSegments, 1);
-        for (int exponent = 0; exponent <= kMaxTileExponent; ++exponent) {
-            const int segments = std::max(1, kBaseSegmentsPerEdge * (1 << exponent));
-            if (segments >= targetSegments) {
-                return exponent;
-            }
-        }
-        return kMaxTileExponent;
-    }
+    return glm::vec3(radius * cosLat * cosLon, radius * cosLat * sinLon, radius * sinLat);
 }
 
+inline int DetermineExponentForTargetSegments(int targetSegments) {
+    targetSegments = std::max(targetSegments, 1);
+    for (int exponent = 0; exponent <= kMaxTileExponent; ++exponent) {
+        const int segments = std::max(1, kBaseSegmentsPerEdge * (1 << exponent));
+        if (segments >= targetSegments) {
+            return exponent;
+        }
+    }
+    return kMaxTileExponent;
+}
+} // namespace
+
 class Sphere {
-public:
-    Sphere(float radius = kDefaultSphereRadius,
-           std::string terrainDataRoot = std::string{},
+  public:
+    Sphere(float radius = kDefaultSphereRadius, std::string terrainDataRoot = std::string{},
            std::size_t maxCachedTiles = 128)
         : radius_(radius) {
         mesh_ = std::make_unique<Mesh>();
@@ -77,7 +74,7 @@ public:
             terrainCache_ = std::make_unique<TerrainTileCache>(terrainDataRoot, maxCachedTiles);
         }
         initializeTiles();
-        updateLODs(nullptr, {0,0}, true);
+        updateLODs(nullptr, {0, 0}, true);
     }
 
     void updateLODs(const Camera* camera, const glm::vec2& screenSize, bool force = false) {
@@ -100,7 +97,7 @@ public:
             const glm::vec3 cameraPos = camera->position;
             const glm::vec3 cameraForward = glm::normalize(camera->front);
             const int maxSegments = std::max(1, kBaseTileResolution * (1 << kMaxTileExponent));
-            
+
             const float maxTileAngularSpan = glm::radians(std::max(kTileLatitudeDegrees, kTileLongitudeDegrees) * 0.5f);
             const float normalCullThreshold = -std::sin(maxTileAngularSpan);
 
@@ -123,7 +120,8 @@ public:
                     anyChanged = true;
                 }
 
-                if (!tile.visible) continue;
+                if (!tile.visible)
+                    continue;
 
                 int targetExponent = 0;
                 if (tile.maxWorldSpan > 0.0f) {
@@ -144,7 +142,7 @@ public:
                 }
             }
         } else { // No camera, just generate base mesh
-             for (auto& tile : tiles_) {
+            for (auto& tile : tiles_) {
                 if (force || tile.currentExponent != 0 || tile.vertexCount == 0) {
                     generateTileGeometry(tile, 0);
                     tile.currentExponent = 0;
@@ -165,7 +163,7 @@ public:
         }
     }
 
-private:
+  private:
     void initializeTiles() {
         tiles_.clear();
         std::mt19937 rng(123456u);
@@ -194,11 +192,11 @@ private:
 
                 // use neutral colors for areas outside the mapped data
                 if (latCenter < -60.0f || latCenter > 60.0f) {
-                    tile.color = glm::vec3(0.5f, 0.5f, 0.5f);  // Neutral gray
+                    tile.color = glm::vec3(0.5f, 0.5f, 0.5f); // Neutral gray
                 }
 
-                tile.centerDirection = glm::normalize(
-                    SphericalToCartesian(1.0f, glm::radians(latCenter), glm::radians(lonCenter)));
+                tile.centerDirection =
+                    glm::normalize(SphericalToCartesian(1.0f, glm::radians(latCenter), glm::radians(lonCenter)));
                 tile.centerPosition = tile.centerDirection * radius_;
 
                 const float cosLat = std::abs(std::cos(tile.latCenterRad));
@@ -214,7 +212,8 @@ private:
     void generateTileGeometry(Tile& tile, int exponent) {
         const int subdivisions = (1 << exponent);
         const int maxSubdivisions = 1 << kMaxTileExponent;
-        const int rows = std::clamp(kBaseTileResolution * subdivisions, kBaseTileResolution, kBaseTileResolution * maxSubdivisions);
+        const int rows =
+            std::clamp(kBaseTileResolution * subdivisions, kBaseTileResolution, kBaseTileResolution * maxSubdivisions);
         const int cols = rows;
 
         const float latSpanRad = glm::radians(static_cast<float>(kTileLatitudeDegrees));
@@ -255,7 +254,7 @@ private:
                 }
                 const glm::vec3 pos = SphericalToCartesian(sampleRadius, lat, lon);
                 const glm::vec3 norm = glm::normalize(pos);
-                
+
                 size_t baseIdx = (r * cols + c) * 9;
                 tile.vertices[baseIdx + 0] = pos.x;
                 tile.vertices[baseIdx + 1] = pos.y;
@@ -287,13 +286,15 @@ private:
     }
 
     void rebuildMesh() {
-        if (!mesh_) return;
+        if (!mesh_)
+            return;
         mesh_->vertices.clear();
         mesh_->indices.clear();
 
         size_t vertexOffset = 0;
         for (const auto& tile : tiles_) {
-            if (!tile.visible || tile.vertexCount == 0) continue;
+            if (!tile.visible || tile.vertexCount == 0)
+                continue;
             mesh_->vertices.insert(mesh_->vertices.end(), tile.vertices.begin(), tile.vertices.end());
             for (unsigned int index : tile.indices) {
                 mesh_->indices.push_back(static_cast<unsigned int>(index + vertexOffset));

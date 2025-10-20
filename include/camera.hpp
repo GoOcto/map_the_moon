@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <cmath>
 
 struct Camera {
     glm::vec3 position;
@@ -15,17 +15,13 @@ struct Camera {
     float speed;
     float sensitivity;
     float fov;
-    
+
     // Orbit mode
     glm::vec3 target;
     float distance;
 
-    Camera(float initialDistance = 500.0f) : 
-               worldUp(0.0f, 0.0f, 1.0f),
-               speed(50.0f),
-               sensitivity(0.15f),
-               fov(45.0f),
-               distance(initialDistance) {
+    Camera(float initialDistance = 500.0f)
+        : worldUp(0.0f, 0.0f, 1.0f), speed(50.0f), sensitivity(0.15f), fov(45.0f), distance(initialDistance) {
         reset();
         updateVectors();
     }
@@ -39,7 +35,7 @@ struct Camera {
         pitch = 20.0f;
         updateVectors();
     }
-    
+
     void updateVectors() {
         // Orbit camera around target point
         glm::vec3 newPos;
@@ -51,9 +47,11 @@ struct Camera {
         right = glm::normalize(glm::cross(front, worldUp));
         up = glm::normalize(glm::cross(right, front));
     }
-    
+
     void constrainPitch() {
-        if (pitch > 89.0f) pitch = 89.0f;
-        if (pitch < -89.0f) pitch = -89.0f;
+        if (pitch > 89.0f)
+            pitch = 89.0f;
+        if (pitch < -89.0f)
+            pitch = -89.0f;
     }
 };

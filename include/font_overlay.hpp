@@ -26,13 +26,16 @@
 #endif
 
 class FontOverlay {
-public:
+  public:
     FontOverlay() = default;
 
     ~FontOverlay() {
-        if (overlayVbo_ != 0) glDeleteBuffers(1, &overlayVbo_);
-        if (overlayVao_ != 0) glDeleteVertexArrays(1, &overlayVao_);
-        if (fontTexture_ != 0) glDeleteTextures(1, &fontTexture_);
+        if (overlayVbo_ != 0)
+            glDeleteBuffers(1, &overlayVbo_);
+        if (overlayVao_ != 0)
+            glDeleteVertexArrays(1, &overlayVao_);
+        if (fontTexture_ != 0)
+            glDeleteTextures(1, &fontTexture_);
     }
 
     void initialize(const std::string& fontPath) {
@@ -54,12 +57,14 @@ public:
     }
 
     void update(float deltaTime) {
-        if (!overlayShader_) return;
+        if (!overlayShader_)
+            return;
 
         fpsAccumulator_ += deltaTime;
         ++frameCount_;
 
-        if (fpsAccumulator_ < kOverlayUpdateInterval) return;
+        if (fpsAccumulator_ < kOverlayUpdateInterval)
+            return;
 
         currentFps_ = (fpsAccumulator_ > 0.0f) ? static_cast<float>(frameCount_) / fpsAccumulator_ : 0.0f;
         frameCount_ = 0;
@@ -72,7 +77,8 @@ public:
     }
 
     void render() {
-        if (!overlayShader_ || overlayVertexCount_ == 0) return;
+        if (!overlayShader_ || overlayVertexCount_ == 0)
+            return;
 
         std::array<GLint, 2> prevPolygonMode{GL_FILL, GL_FILL};
         glGetIntegerv(GL_POLYGON_MODE, prevPolygonMode.data());
@@ -111,7 +117,7 @@ public:
         glPolygonMode(GL_BACK, prevPolygonMode[1]);
     }
 
-private:
+  private:
     static constexpr float kOverlayUpdateInterval = 0.25f;
     static constexpr float kOverlayPadding = 10.0f;
     static constexpr float kFontSize = 15.0f;
@@ -147,8 +153,8 @@ private:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, kFontAtlasWidth, kFontAtlasHeight, 0,
-                     GL_RED, GL_UNSIGNED_BYTE, fontBitmap_.data());
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, kFontAtlasWidth, kFontAtlasHeight, 0, GL_RED, GL_UNSIGNED_BYTE,
+                     fontBitmap_.data());
     }
 
     void createShader() {
@@ -171,7 +177,8 @@ private:
     }
 
     void rebuildOverlayGeometry() {
-        if (!overlayShader_) return;
+        if (!overlayShader_)
+            return;
 
         std::vector<float> vertices;
         vertices.reserve(fpsText_.length() * 6 * 4);
@@ -180,7 +187,8 @@ private:
         float y = kOverlayPadding;
 
         for (char c : fpsText_) {
-            if (c < 32 || c >= 128) continue;
+            if (c < 32 || c >= 128)
+                continue;
 
             stbtt_aligned_quad q;
             stbtt_GetBakedQuad(cdata_, kFontAtlasWidth, kFontAtlasHeight, c - 32, &x, &y, &q, 1);
@@ -189,13 +197,9 @@ private:
             const float y1 = q.y1 + kFontSize + 5.0f;
 
             float quadVerts[] = {
-                q.x0, y1, q.s0, q.t1,
-                q.x0, y0, q.s0, q.t0,
-                q.x1, y0, q.s1, q.t0,
+                q.x0, y1, q.s0, q.t1, q.x0, y0, q.s0, q.t0, q.x1, y0, q.s1, q.t0,
 
-                q.x0, y1, q.s0, q.t1,
-                q.x1, y0, q.s1, q.t0,
-                q.x1, y1, q.s1, q.t1,
+                q.x0, y1, q.s0, q.t1, q.x1, y0, q.s1, q.t0, q.x1, y1, q.s1, q.t1,
             };
             vertices.insert(vertices.end(), std::begin(quadVerts), std::end(quadVerts));
         }

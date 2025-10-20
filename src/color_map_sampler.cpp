@@ -26,7 +26,7 @@ int gHeight = 0;
 std::vector<std::uint8_t> gColorData;
 std::filesystem::path gDataRoot{"."};
 
-constexpr const char *kColorMapPath = ".data/color/colormap.jpg";
+constexpr const char* kColorMapPath = ".data/color/colormap.jpg";
 constexpr UINT kMaxDimension = 4096;
 constexpr size_t kChannels = 3;
 
@@ -197,7 +197,7 @@ bool ColorMapSampler::ensureLoaded() {
         gHeight = static_cast<int>(height);
         gColorData.resize(static_cast<size_t>(gWidth) * static_cast<size_t>(gHeight) * kChannels);
         for (UINT y = 0; y < height; ++y) {
-            const BYTE *srcRow = buffer.data() + static_cast<size_t>(y) * stride;
+            const BYTE* srcRow = buffer.data() + static_cast<size_t>(y) * stride;
             for (UINT x = 0; x < width; ++x) {
                 const size_t srcIndex = static_cast<size_t>(x) * kChannels;
                 const size_t dstIndex = pixelIndex(static_cast<int>(x), static_cast<int>(y));

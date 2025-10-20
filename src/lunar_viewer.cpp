@@ -53,7 +53,7 @@ double wrapLongitudeDegrees(double lonDegrees) {
     return wrapped;
 }
 
-const char *kVertexShaderSource = R"(
+const char* kVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in float aElevation;
@@ -105,7 +105,7 @@ void main() {
 }
 )";
 
-const char *kFragmentShaderSource = R"(
+const char* kFragmentShaderSource = R"(
 #version 330 core
 in float elevation;
 in vec3 FragPos;
@@ -168,7 +168,7 @@ void main() {
 
 class LunarViewerApp : public Application {
   public:
-    LunarViewerApp(const char *windowTitle, std::string dataRoot)
+    LunarViewerApp(const char* windowTitle, std::string dataRoot)
         : Application(windowTitle), dataRoot_(std::move(dataRoot)) // Store dataRoot
     {
         ColorMapSampler::setDataRoot(dataRoot_);
@@ -254,7 +254,7 @@ class LunarViewerApp : public Application {
         fpsOverlay_.render();
     }
 
-    void keyCallback(GLFWwindow *w, int key, int scancode, int action, int mods) override {
+    void keyCallback(GLFWwindow* w, int key, int scancode, int action, int mods) override {
         Application::keyCallback(w, key, scancode, action, mods);
 
         if (action == GLFW_PRESS) {
@@ -299,16 +299,16 @@ class LunarViewerApp : public Application {
         }
     }
 
-    void framebufferSizeCallback(GLFWwindow *w, int width, int height) override {
+    void framebufferSizeCallback(GLFWwindow* w, int width, int height) override {
         Application::framebufferSizeCallback(w, width, height);
         screenSize_.x = static_cast<float>(std::max(width, 1));
         screenSize_.y = static_cast<float>(std::max(height, 1));
     }
 
-    void mouseCallback(GLFWwindow *w, double xpos, double ypos) override {
+    void mouseCallback(GLFWwindow* w, double xpos, double ypos) override {
     }
 
-    void scrollCallback(GLFWwindow *w, double xoffset, double yoffset) override {
+    void scrollCallback(GLFWwindow* w, double xoffset, double yoffset) override {
     }
 
   private:
@@ -321,7 +321,7 @@ class LunarViewerApp : public Application {
         }
 
         if (samplingStep_ > 1) {
-            for (float &val : elevationData_) {
+            for (float& val : elevationData_) {
                 val *= 1.0f / static_cast<float>(samplingStep_);
             }
         }
@@ -358,13 +358,13 @@ class LunarViewerApp : public Application {
         minElevation_ = *std::min_element(elevationData_.begin(), elevationData_.end());
         maxElevation_ = *std::max_element(elevationData_.begin(), elevationData_.end());
 
-        for (float &val : elevationData_) {
+        for (float& val : elevationData_) {
             val *= 1.0f / static_cast<float>(samplingStep_);
         }
 
         updateCurvatureAmount();
-        auto newColorData = ColorMapSampler::sampleColorsForTerrain(povLatitudeDegrees_, povLongitudeDegrees_, width_,
-                                                                 height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
+        auto newColorData = ColorMapSampler::sampleColorsForTerrain(
+            povLatitudeDegrees_, povLongitudeDegrees_, width_, height_, totalLatSpanDegrees_, totalLonSpanDegrees_);
 
         TerrainLoader::updateMeshElevations(elevationData_, width_, height_, mesh->vertices);
         TerrainLoader::updateMeshColors(newColorData, width_, height_, mesh->vertices);
@@ -410,7 +410,7 @@ class LunarViewerApp : public Application {
     }
 
     void updateCurvatureAmount() {
-        const terrain::TileMetadata *tile = terrain::findTile(povLatitudeDegrees_, povLongitudeDegrees_);
+        const terrain::TileMetadata* tile = terrain::findTile(povLatitudeDegrees_, povLongitudeDegrees_);
         float degreesPerPixelLon = 45.0f / static_cast<float>(terrain::TILE_WIDTH);
         float degreesPerPixelLat = 30.0f / static_cast<float>(terrain::TILE_HEIGHT);
         if (tile) {
@@ -508,14 +508,14 @@ class LunarViewerApp : public Application {
     float totalLatSpanDegrees_ = 0.0f;
 };
 
-int main(int argc, char **argv) {
-    const char *defaultDataRoot = "../";
+int main(int argc, char** argv) {
+    const char* defaultDataRoot = "../";
     std::string dataRoot = (argc > 1) ? argv[1] : defaultDataRoot;
 
     try {
         LunarViewerApp app("Lunar Surface Viewer", std::move(dataRoot));
         app.run();
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }

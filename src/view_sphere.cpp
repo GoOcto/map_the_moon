@@ -38,7 +38,7 @@ constexpr std::size_t kMaxTerrainTilesCached = 256;
 
 // --- SHADERS ---
 
-const char *kVertexShaderSource = R"(
+const char* kVertexShaderSource = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
@@ -61,7 +61,7 @@ void main() {
 }
 )";
 
-const char *kFragmentShaderSource = R"(
+const char* kFragmentShaderSource = R"(
 #version 330 core
 in vec3 vNormal;
 in vec3 vFragPos;
@@ -163,7 +163,7 @@ class SphereViewerApp : public Application {
         fpsOverlay_.render();
     }
 
-    void keyCallback(GLFWwindow *w, int key, int scancode, int action, int mods) override {
+    void keyCallback(GLFWwindow* w, int key, int scancode, int action, int mods) override {
         if (key == GLFW_KEY_TAB && action == GLFW_PRESS) {
             wireframeEnabled_ = !wireframeEnabled_;
             wireframeMode = wireframeEnabled_;
@@ -174,7 +174,7 @@ class SphereViewerApp : public Application {
         Application::keyCallback(w, key, scancode, action, mods);
     }
 
-    void framebufferSizeCallback(GLFWwindow *w, int width, int height) override {
+    void framebufferSizeCallback(GLFWwindow* w, int width, int height) override {
         Application::framebufferSizeCallback(w, width, height);
         screenSize_.x = static_cast<float>(std::max(width, 1));
         screenSize_.y = static_cast<float>(std::max(height, 1));
@@ -182,14 +182,14 @@ class SphereViewerApp : public Application {
         // We don't need to rebuild geometry here, the projection matrix will handle it.
     }
 
-    void scrollCallback(GLFWwindow * /*w*/, double /*xoffset*/, double yoffset) override {
+    void scrollCallback(GLFWwindow* /*w*/, double /*xoffset*/, double yoffset) override {
         const float speed = computeScrollZoomSpeed();
         camera->distance =
             std::clamp(camera->distance - static_cast<float>(yoffset) * speed, kMinCameraDistance, kMaxCameraDistance);
         camera->updateVectors();
     }
 
-    void mouseCallback(GLFWwindow * /*w*/, double xpos, double ypos) override {
+    void mouseCallback(GLFWwindow* /*w*/, double xpos, double ypos) override {
         glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
 
         if (input->leftMousePressed) {
@@ -227,7 +227,7 @@ class SphereViewerApp : public Application {
         std::vector<std::filesystem::path> candidates;
         // candidates.emplace_back(".data/proc");  // currently out because it is very inefficient
 
-        for (const auto &candidate : candidates) {
+        for (const auto& candidate : candidates) {
             std::error_code ec;
             if (!candidate.empty() && std::filesystem::exists(candidate, ec) &&
                 std::filesystem::is_directory(candidate, ec)) {
@@ -314,7 +314,7 @@ int main() {
     try {
         SphereViewerApp app;
         app.run();
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
