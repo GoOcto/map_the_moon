@@ -70,9 +70,6 @@ class Application {
 
         while (!window->shouldClose()) {
             updateTime();
-
-            input->handleKeyPress(GLFW_KEY_SPACE); // This will be overridden by actual input
-
             update(deltaTime);
 
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
