@@ -80,29 +80,8 @@ class Application {
         }
     }
 
-    virtual void printControls() {
-        std::cout << "\n=== Controls ===" << std::endl;
-        std::cout << "Camera Modes:" << std::endl;
-        std::cout << "  Space: Toggle Orbit/FPS mode" << std::endl;
-        std::cout << "  R: Reset camera" << std::endl;
-        std::cout << "" << std::endl;
-        std::cout << "Orbit Mode (default):" << std::endl;
-        std::cout << "  Left-click + drag: Rotate around terrain" << std::endl;
-        std::cout << "  Right-click + drag: Pan camera" << std::endl;
-        std::cout << "  Scroll: Zoom in/out" << std::endl;
-        std::cout << "  WASD: Move target point" << std::endl;
-        std::cout << "" << std::endl;
-        std::cout << "FPS Mode:" << std::endl;
-        std::cout << "  Mouse: Look around" << std::endl;
-        std::cout << "  WASD: Move forward/back/left/right" << std::endl;
-        std::cout << "  Q/E: Move down/up" << std::endl;
-        std::cout << "" << std::endl;
-        std::cout << "Other:" << std::endl;
-        std::cout << "  Shift: Move faster" << std::endl;
-        std::cout << "  Tab: Toggle wireframe" << std::endl;
-        std::cout << "  F11 or Ctrl+Enter: Toggle fullscreen" << std::endl;
-        std::cout << "  ESC: Quit" << std::endl;
-        std::cout << "===============\n" << std::endl;
+     virtual void printControls() {
+         std::cout << "The App is running.\n" << std::endl;
     }
 
     // GLFW Callback setters

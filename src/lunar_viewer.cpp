@@ -584,7 +584,7 @@ class LunarViewerApp : public Application {
 };
 
 int main(int argc, char** argv) {
-    const char* defaultDataRoot = "../";
+    const char* defaultDataRoot = "./";
     std::string dataRoot = (argc > 1) ? argv[1] : defaultDataRoot;
 
     try {
