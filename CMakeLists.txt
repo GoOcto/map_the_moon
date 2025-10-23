@@ -24,9 +24,57 @@ endif()
 # This requires GLEW and GLFW development packages to be installed on Linux
 # (e.g., sudo apt-get install libglew-dev libglfw3-dev)
 find_package(OpenGL REQUIRED)
+
+# Configure windowing/gl bindings per-platform
 set(GLEW_STATIC ON) # We want static linking, as in the original
-find_package(GLEW REQUIRED)
-find_package(glfw3 REQUIRED)
+
+if(WIN32)
+    # Use bundled Windows binaries for GLEW/GLFW
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(_ARCH_DIR x64)
+    else()
+        set(_ARCH_DIR Win32)
+    endif()
+
+    set(GLEW_ROOT ${CMAKE_SOURCE_DIR}/libs/glew)
+    if(NOT TARGET GLEW::glew)
+        add_library(GLEW::glew STATIC IMPORTED)
+        set_target_properties(GLEW::glew PROPERTIES
+            IMPORTED_LOCATION "${GLEW_ROOT}/lib/Release/${_ARCH_DIR}/glew32s.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${GLEW_ROOT}/include"
+        )
+        target_compile_definitions(GLEW::glew INTERFACE GLEW_STATIC)
+    endif()
+
+    set(GLFW_ROOT ${CMAKE_SOURCE_DIR}/libs/glfw)
+    if(NOT TARGET glfw)
+        add_library(glfw STATIC IMPORTED)
+        set_target_properties(glfw PROPERTIES
+            IMPORTED_LOCATION "${GLFW_ROOT}/lib/glfw3_mt.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${GLFW_ROOT}/include"
+        )
+    endif()
+
+    set(GLFW_SYSTEM_LIBS
+        gdi32
+        shell32
+        user32
+        advapi32
+        ole32
+        oleaut32
+        version
+        winmm
+    )
+else()
+    find_package(GLEW REQUIRED)
+    find_package(glfw3 REQUIRED)
+
+    # Harmonise target name with ours if different
+    if(TARGET GLEW::GLEW AND NOT TARGET GLEW::glew)
+        add_library(GLEW::glew INTERFACE IMPORTED)
+        set_property(TARGET GLEW::glew PROPERTY INTERFACE_LINK_LIBRARIES GLEW::GLEW)
+    endif()
+endif()
 
 # --- Paths for Bundled Libraries ---
 # We'll keep using your bundled versions of GLM, STB, and TinyTIFF source
@@ -101,6 +149,10 @@ foreach(TARGET view_tile view_sphere)
         glfw      
         tinytiff
     )
+
+    if(WIN32)
+        target_link_libraries(${TARGET} PRIVATE ${GLFW_SYSTEM_LIBS})
+    endif()
 
     # Set output directory
     set_target_properties(${TARGET} PROPERTIES
