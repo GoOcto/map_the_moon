@@ -4,27 +4,192 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cctype>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
-#ifdef _WIN32
-#define NOMINMAX
-#include <wincodec.h>
-#include <windows.h>
-#include <wrl/client.h>
-#endif
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include "tinytiffreader.h"
 
 namespace {
-constexpr char kColorMapPath[] = ".data/color/colormap.jpg";
+//constexpr char kColorMapPath[] = ".data/color/colormap.jpg";
+constexpr char kColorMapPath[] = ".data/color/colormap-1kmpp.tif";
 constexpr unsigned int kMaxDimension = 4096;
 constexpr size_t kChannels = 3;
 constexpr std::array<float, 3> kFallbackColor{1.0f, 1.0f, 1.0f};
 constexpr std::array<float, 3> kOutOfRangeColor{0.7f, 0.7f, 0.7f};
+
+struct LoadedImage {
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> pixels;
+};
+
+bool isTiffFile(const std::filesystem::path& path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return extension == ".tif" || extension == ".tiff";
+}
+
+bool loadImageWithStb(const std::filesystem::path& path, LoadedImage& imageOut) {
+    int width = 0;
+    int height = 0;
+    int channelsInFile = 0;
+
+    stbi_set_flip_vertically_on_load(false);
+    stbi_uc* rawData = stbi_load(path.string().c_str(), &width, &height, &channelsInFile, static_cast<int>(kChannels));
+    if (!rawData) {
+        std::cerr << "Failed to load color map: " << path.string() << " Reason: "
+                  << (stbi_failure_reason() ? stbi_failure_reason() : "unknown") << std::endl;
+        return false;
+    }
+
+    const auto imageDeleter = [](stbi_uc* data) { stbi_image_free(data); };
+    std::unique_ptr<stbi_uc, decltype(imageDeleter)> imageData(rawData, imageDeleter);
+
+    if (width <= 0 || height <= 0) {
+        std::cerr << "Invalid dimensions for color map." << std::endl;
+        return false;
+    }
+
+    const size_t totalSize = static_cast<size_t>(width) * static_cast<size_t>(height) * kChannels;
+    imageOut.width = width;
+    imageOut.height = height;
+    imageOut.pixels.assign(imageData.get(), imageData.get() + totalSize);
+    return true;
+}
+
+bool loadImageWithTinyTiff(const std::filesystem::path& path, LoadedImage& imageOut) {
+    struct TinyTiffCloser {
+        void operator()(TinyTIFFReaderFile* file) const {
+            if (file) {
+                TinyTIFFReader_close(file);
+            }
+        }
+    };
+
+    std::unique_ptr<TinyTIFFReaderFile, TinyTiffCloser> tiff(
+        TinyTIFFReader_open(path.string().c_str()));
+    if (!tiff) {
+        std::cerr << "Failed to open TIFF color map: " << path.string() << std::endl;
+        return false;
+    }
+
+    const uint32_t width = TinyTIFFReader_getWidth(tiff.get());
+    const uint32_t height = TinyTIFFReader_getHeight(tiff.get());
+    if (width == 0 || height == 0) {
+        std::cerr << "TIFF color map has no image data: " << path.string() << std::endl;
+        return false;
+    }
+
+    const uint16_t bitsPerSample = TinyTIFFReader_getBitsPerSample(tiff.get(), 0);
+    const uint16_t samplesPerPixel = TinyTIFFReader_getSamplesPerPixel(tiff.get());
+    const uint16_t sampleFormat = TinyTIFFReader_getSampleFormat(tiff.get());
+
+    if (bitsPerSample != 8 || sampleFormat != TINYTIFF_SAMPLEFORMAT_UINT) {
+        std::cerr << "Unsupported TIFF pixel format in color map (bitsPerSample=" << bitsPerSample
+                  << ", sampleFormat=" << sampleFormat << ")." << std::endl;
+        return false;
+    }
+
+    if (samplesPerPixel == 0) {
+        std::cerr << "TIFF color map reports zero samples per pixel." << std::endl;
+        return false;
+    }
+
+    const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+
+    std::vector<std::vector<std::uint8_t>> samplePlanes(samplesPerPixel);
+    for (uint16_t sampleIndex = 0; sampleIndex < samplesPerPixel; ++sampleIndex) {
+        auto& plane = samplePlanes[sampleIndex];
+        plane.resize(pixelCount);
+        if (!TinyTIFFReader_getSampleData_s(tiff.get(), plane.data(), static_cast<unsigned long>(plane.size()),
+                                            sampleIndex)) {
+            const char* error = TinyTIFFReader_getLastError(tiff.get());
+            std::cerr << "Failed to read TIFF sample " << sampleIndex << ": "
+                      << (error ? error : "unknown error") << std::endl;
+            return false;
+        }
+    }
+
+    imageOut.width = static_cast<int>(width);
+    imageOut.height = static_cast<int>(height);
+    imageOut.pixels.resize(pixelCount * kChannels);
+
+    for (size_t pixelIndex = 0; pixelIndex < pixelCount; ++pixelIndex) {
+        for (size_t channel = 0; channel < kChannels; ++channel) {
+            const size_t sourceChannel = channel < samplePlanes.size() ? channel : 0;
+            imageOut.pixels[pixelIndex * kChannels + channel] =
+                samplePlanes[sourceChannel][pixelIndex];
+        }
+    }
+
+    return true;
+}
+
+std::vector<std::uint8_t> resampleBilinear(const std::uint8_t* source, int sourceWidth, int sourceHeight,
+                                            int destWidth, int destHeight) {
+    std::vector<std::uint8_t> destination(static_cast<size_t>(destWidth) * static_cast<size_t>(destHeight) *
+                                          kChannels);
+
+    if (destWidth == 0 || destHeight == 0) {
+        return destination;
+    }
+
+    const float scaleX = static_cast<float>(sourceWidth) / static_cast<float>(destWidth);
+    const float scaleY = static_cast<float>(sourceHeight) / static_cast<float>(destHeight);
+
+    for (int y = 0; y < destHeight; ++y) {
+        const float rawSrcY = (static_cast<float>(y) + 0.5f) * scaleY - 0.5f;
+        const float clampedSrcY = std::clamp(rawSrcY, 0.0f, static_cast<float>(sourceHeight - 1));
+        const int y0 = static_cast<int>(std::floor(clampedSrcY));
+        const int y1 = std::min(y0 + 1, sourceHeight - 1);
+        const float ty = clampedSrcY - static_cast<float>(y0);
+
+        for (int x = 0; x < destWidth; ++x) {
+            const float rawSrcX = (static_cast<float>(x) + 0.5f) * scaleX - 0.5f;
+            const float clampedSrcX = std::clamp(rawSrcX, 0.0f, static_cast<float>(sourceWidth - 1));
+            const int x0 = static_cast<int>(std::floor(clampedSrcX));
+            const int x1 = std::min(x0 + 1, sourceWidth - 1);
+            const float tx = clampedSrcX - static_cast<float>(x0);
+
+            const size_t destIndex =
+                (static_cast<size_t>(y) * static_cast<size_t>(destWidth) + static_cast<size_t>(x)) * kChannels;
+            const size_t idx00 =
+                (static_cast<size_t>(y0) * static_cast<size_t>(sourceWidth) + static_cast<size_t>(x0)) * kChannels;
+            const size_t idx10 =
+                (static_cast<size_t>(y0) * static_cast<size_t>(sourceWidth) + static_cast<size_t>(x1)) * kChannels;
+            const size_t idx01 =
+                (static_cast<size_t>(y1) * static_cast<size_t>(sourceWidth) + static_cast<size_t>(x0)) * kChannels;
+            const size_t idx11 =
+                (static_cast<size_t>(y1) * static_cast<size_t>(sourceWidth) + static_cast<size_t>(x1)) * kChannels;
+
+            for (size_t channel = 0; channel < kChannels; ++channel) {
+                const float c00 = static_cast<float>(source[idx00 + channel]);
+                const float c10 = static_cast<float>(source[idx10 + channel]);
+                const float c01 = static_cast<float>(source[idx01 + channel]);
+                const float c11 = static_cast<float>(source[idx11 + channel]);
+
+                const float a = c00 + (c10 - c00) * tx;
+                const float b = c01 + (c11 - c01) * tx;
+                float value = a + (b - a) * ty;
+                value = std::clamp(value, 0.0f, 255.0f);
+                destination[destIndex + channel] = static_cast<std::uint8_t>(std::lround(value));
+            }
+        }
+    }
+
+    return destination;
+}
 } // namespace
 
 ColorMapSampler::ColorMapSampler(std::string dataRoot) {
@@ -66,167 +231,51 @@ bool ColorMapSampler::load() {
         return false;
     }
 
-#ifdef _WIN32
-    struct CoUninitGuard {
-        bool active = false;
-        ~CoUninitGuard() {
-            if (active) {
-                CoUninitialize();
-            }
-        }
-    };
-
-    bool needUninitialize = false;
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (hr == S_OK || hr == S_FALSE) {
-        needUninitialize = true;
-    } else if (hr == RPC_E_CHANGED_MODE) {
-        // Already initialized with a different concurrency model; proceed without uninitializing.
-    } else if (FAILED(hr)) {
-        std::cerr << "CoInitializeEx failed with HRESULT=0x" << std::hex << hr << std::dec << std::endl;
+    LoadedImage loadedImage;
+    const bool isTiff = isTiffFile(path);
+    const bool loaded = isTiff ? loadImageWithTinyTiff(path, loadedImage) : loadImageWithStb(path, loadedImage);
+    if (!loaded) {
         resetState();
         return false;
     }
 
-    CoUninitGuard coGuard{needUninitialize};
+    const int srcWidth = loadedImage.width;
+    const int srcHeight = loadedImage.height;
 
-    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
-    hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
-    if (FAILED(hr)) {
-        std::cerr << "Failed to create WIC factory. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
-        resetState();
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    const std::wstring widePath = path.wstring();
-    hr = factory->CreateDecoderFromFilename(widePath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad,
-                                            &decoder);
-    if (FAILED(hr)) {
-        std::cerr << "Failed to decode color map: " << path.string() << " HRESULT=0x" << std::hex << hr << std::dec
-                  << std::endl;
-        resetState();
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr)) {
-        std::cerr << "Failed to obtain frame from color map. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
-        resetState();
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IWICBitmapSource> source;
-    hr = frame.As(&source);
-    if (FAILED(hr)) {
-        std::cerr << "Failed to query IWICBitmapSource from frame. HRESULT=0x" << std::hex << hr << std::dec
-                  << std::endl;
-        resetState();
-        return false;
-    }
-
-    UINT width = 0;
-    UINT height = 0;
-    hr = source->GetSize(&width, &height);
-    if (FAILED(hr) || width == 0 || height == 0) {
-        std::cerr << "Invalid dimensions for color map." << std::endl;
-        resetState();
-        return false;
-    }
-
-    UINT targetWidth = width;
-    UINT targetHeight = height;
-    if (targetWidth > kMaxDimension || targetHeight > kMaxDimension) {
+    int targetWidth = srcWidth;
+    int targetHeight = srcHeight;
+    if (static_cast<unsigned int>(targetWidth) > kMaxDimension ||
+        static_cast<unsigned int>(targetHeight) > kMaxDimension) {
         if (targetWidth >= targetHeight) {
-            targetWidth = kMaxDimension;
-            targetHeight = static_cast<UINT>(
-                std::max(1.0, std::round(static_cast<double>(height) * targetWidth / static_cast<double>(width))));
+            targetWidth = static_cast<int>(kMaxDimension);
+            const double scale = static_cast<double>(targetWidth) / static_cast<double>(srcWidth);
+            targetHeight = std::max(1, static_cast<int>(std::round(static_cast<double>(srcHeight) * scale)));
         } else {
-            targetHeight = kMaxDimension;
-            targetWidth = static_cast<UINT>(
-                std::max(1.0, std::round(static_cast<double>(width) * targetHeight / static_cast<double>(height))));
+            targetHeight = static_cast<int>(kMaxDimension);
+            const double scale = static_cast<double>(targetHeight) / static_cast<double>(srcHeight);
+            targetWidth = std::max(1, static_cast<int>(std::round(static_cast<double>(srcWidth) * scale)));
         }
     }
 
-    Microsoft::WRL::ComPtr<IWICBitmapSource> workingSource = source;
-    if (targetWidth != width || targetHeight != height) {
-        Microsoft::WRL::ComPtr<IWICBitmapScaler> scaler;
-        hr = factory->CreateBitmapScaler(&scaler);
-        if (FAILED(hr)) {
-            std::cerr << "Failed to create WIC bitmap scaler. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
-            resetState();
-            return false;
-        }
-
-        hr = scaler->Initialize(workingSource.Get(), targetWidth, targetHeight, WICBitmapInterpolationModeFant);
-        if (FAILED(hr)) {
-            std::cerr << "Failed to scale color map. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
-            resetState();
-            return false;
-        }
-
-        workingSource = scaler;
-        width = targetWidth;
-        height = targetHeight;
+    std::vector<std::uint8_t> finalData;
+    if (targetWidth != srcWidth || targetHeight != srcHeight) {
+        finalData = resampleBilinear(loadedImage.pixels.data(), srcWidth, srcHeight, targetWidth, targetHeight);
+    } else {
+        finalData = std::move(loadedImage.pixels);
     }
 
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    hr = factory->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        std::cerr << "Failed to create WIC format converter. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
+    if (finalData.empty()) {
+        std::cerr << "Failed to process color map." << std::endl;
         resetState();
         return false;
     }
 
-    hr = converter->Initialize(workingSource.Get(), GUID_WICPixelFormat24bppBGR, WICBitmapDitherTypeNone, nullptr, 0.0,
-                               WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
-        std::cerr << "Failed to initialize WIC converter. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
-        resetState();
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IWICBitmapSource> convertedSource;
-    hr = converter.As(&convertedSource);
-    if (FAILED(hr)) {
-        std::cerr << "Failed to query converted bitmap source. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
-        resetState();
-        return false;
-    }
-
-    const UINT stride = width * static_cast<UINT>(kChannels);
-    const UINT bufferSize = stride * height;
-    std::vector<BYTE> buffer(bufferSize);
-    hr = convertedSource->CopyPixels(nullptr, stride, bufferSize, buffer.data());
-    if (FAILED(hr)) {
-        std::cerr << "Failed to copy pixels from color map. HRESULT=0x" << std::hex << hr << std::dec << std::endl;
-        resetState();
-        return false;
-    }
-
-    m_width = static_cast<int>(width);
-    m_height = static_cast<int>(height);
-    m_colorData.resize(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * kChannels);
-    for (UINT y = 0; y < height; ++y) {
-        const BYTE* srcRow = buffer.data() + static_cast<size_t>(y) * stride;
-        for (UINT x = 0; x < width; ++x) {
-            const size_t srcIndex = static_cast<size_t>(x) * kChannels;
-            const size_t dstIndex = pixelIndex(static_cast<int>(x), static_cast<int>(y));
-            m_colorData[dstIndex + 0] = srcRow[srcIndex + 2];
-            m_colorData[dstIndex + 1] = srcRow[srcIndex + 1];
-            m_colorData[dstIndex + 2] = srcRow[srcIndex + 0];
-        }
-    }
-
+    m_width = targetWidth;
+    m_height = targetHeight;
+    m_colorData = std::move(finalData);
     m_isLoaded = true;
     std::cout << "Loaded color map (" << m_width << " x " << m_height << ")" << std::endl;
     return true;
-#else
-    std::cerr << "Color map loading is currently supported on Windows only." << std::endl;
-    resetState();
-    return false;
-#endif
 }
 
 std::vector<std::array<float, 3>> ColorMapSampler::sampleColorsForTerrain(double povLatDegrees, double povLonDegrees,
