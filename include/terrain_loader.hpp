@@ -91,7 +91,7 @@ class TerrainLoader {
      * @brief Performs a full, fresh load. Updates internal m_elevationData.
      */
     void doFullLoad(double povLat, double povLon, int width, int height, int steps, const TileInfo& tile) {
-        std::cout << "\nPerforming full terrain load..." << std::endl;
+        std::cout << "\nPerforming full terrain load from " << tile.filename << "..." << std::endl;
 
         int centerX, centerY, startX, startY;
         double degPerPixelX, degPerPixelY;
@@ -145,6 +145,7 @@ class TerrainLoader {
      * @brief Performs an efficient "scrolling" update. Updates internal m_elevationData.
      */
     void doScrollLoad(double povLat, double povLon, int width, int height, int steps, const TileInfo& tile) {
+        std::cout << "\nPerforming scrollLoad from " << tile.filename << "..." << std::endl;
 
         int newCenterX, newCenterY;
         // The rest of these are unused in this calculation but required by the function
