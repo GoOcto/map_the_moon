@@ -4,30 +4,44 @@ project(LunarViewer)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find OpenGL (usually available on Windows)
-find_package(OpenGL REQUIRED)
+# C standard for tinytiff
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Set library paths for Windows
+# Check for 64-bit file functions for TinyTIFF
+include(CheckFunctionExists)
+check_function_exists(_ftelli64 HAVE_FTELLI64)
+check_function_exists(ftello HAVE_FTELLO)
+
+# --- Find System Libraries ---
+
+# Silence OpenGL GLVND vs. Legacy warning (Policy CMP0072)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.10")
+    cmake_policy(SET CMP0072 NEW)
+    set(OpenGL_GL_PREFERENCE "GLVND")
+endif()
+
+# This requires GLEW and GLFW development packages to be installed on Linux
+# (e.g., sudo apt-get install libglew-dev libglfw3-dev)
+find_package(OpenGL REQUIRED)
+set(GLEW_STATIC ON) # We want static linking, as in the original
+find_package(GLEW REQUIRED)
+find_package(glfw3 REQUIRED)
+
+# --- Paths for Bundled Libraries ---
+# We'll keep using your bundled versions of GLM, STB, and TinyTIFF source
 set(LIBS_DIR ${CMAKE_SOURCE_DIR}/libs)
 set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 
-# GLEW (link statically to avoid runtime DLL dependency)
-set(GLEW_INCLUDE_DIR ${LIBS_DIR}/glew/include)
-set(GLEW_LIBRARY ${LIBS_DIR}/glew/lib/Release/x64/glew32s.lib)
-
-# GLFW
-set(GLFW_INCLUDE_DIR ${LIBS_DIR}/glfw/include)
-set(GLFW_LIBRARY ${LIBS_DIR}/glfw/lib/glfw3.lib)
-
-# GLM (header-only)
+# Header-only libraries
 set(GLM_INCLUDE_DIR ${LIBS_DIR}/glm/include)
-
-# STB
 set(STB_INCLUDE_DIR ${LIBS_DIR}/stb)
 
+# --- Build TinyTIFF from source ---
 set(TINYTIFF_DIR ${LIBS_DIR}/TinyTIFF)
 set(TINYTIFF_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${TINYTIFF_GENERATED_DIR})
+
 string(TIMESTAMP TINYTIFF_COMPILETIME "%Y-%m-%d")
 set(TINYTIFF_VERSION "3.0.0")
 set(TINYTIFF_GITVERSION "local")
@@ -46,71 +60,50 @@ target_include_directories(tinytiff PUBLIC
     ${TINYTIFF_DIR}
     ${TINYTIFF_GENERATED_DIR}
 )
-target_compile_definitions(tinytiff PRIVATE
-    _CRT_SECURE_NO_WARNINGS
-    HAVE_FTELLI64
-)
-set_target_properties(tinytiff PROPERTIES
-    C_STANDARD 99
-    C_STANDARD_REQUIRED ON
-)
 
-# Common source files
+# Platform-specific definitions for tinytiff
+if(HAVE_FTELLI64)
+    target_compile_definitions(tinytiff PRIVATE HAVE_FTELLI64)
+elseif(HAVE_FTELLO)
+    target_compile_definitions(tinytiff PRIVATE HAVE_FTELLO)
+endif()
+
+if(MSVC)
+    # Add MSVC-specific warning suppression
+    target_compile_definitions(tinytiff PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+    # Add POSIX definition for 64-bit file offsets
+    target_compile_definitions(tinytiff PRIVATE _LARGEFILE64_SOURCE=1)
+endif()
+
+# --- Executable Targets ---
 set(COMMON_SOURCES
     src/color_map_sampler.cpp
 )
 
-# Add executables
-add_executable(view_tile src/view_tile.cpp ${COMMON_SOURCES})
-add_executable(view_sphere src/view_sphere.cpp ${COMMON_SOURCES})
+# Use a loop to define common properties for both executables
+foreach(TARGET view_tile view_sphere)
+    add_executable(${TARGET} src/${TARGET}.cpp ${COMMON_SOURCES})
 
-# Include directories for view_tile
-target_include_directories(view_tile PRIVATE
-    ${INCLUDE_DIR}
-    ${GLEW_INCLUDE_DIR}
-    ${GLFW_INCLUDE_DIR}
-    ${GLM_INCLUDE_DIR}
-    ${STB_INCLUDE_DIR}
-)
+    # Include directories for bundled libs + your custom include
+    target_include_directories(${TARGET} PRIVATE
+        ${INCLUDE_DIR}
+        ${GLM_INCLUDE_DIR}
+        ${STB_INCLUDE_DIR}
+        # Note: GLEW and GLFW includes are added automatically
+        # by their imported targets below.
+    )
 
-# Link libraries for view_tile
-target_link_libraries(view_tile PRIVATE  # <-- Added PRIVATE keyword
-    OpenGL::GL
-    ${GLEW_LIBRARY}
-    ${GLFW_LIBRARY}
-    tinytiff
-    # REMOVED generator expressions for windows libs 
-)
+    # Link libraries using modern, cross-platform imported targets
+    target_link_libraries(${TARGET} PRIVATE
+        OpenGL::GL
+        GLEW::glew
+        glfw      
+        tinytiff
+    )
 
-target_compile_definitions(view_tile PRIVATE GLEW_STATIC)
-
-
-# Set output directory
-set_target_properties(view_tile PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
-)
-
-# Include directories for sphere
-target_include_directories(view_sphere PRIVATE
-    ${INCLUDE_DIR}
-    ${GLEW_INCLUDE_DIR}
-    ${GLFW_INCLUDE_DIR}
-    ${GLM_INCLUDE_DIR}
-    ${STB_INCLUDE_DIR}
-)
-
-# Link libraries for view_sphere
-target_link_libraries(view_sphere PRIVATE  # <-- Added PRIVATE keyword
-    OpenGL::GL
-    ${GLEW_LIBRARY}
-    ${GLFW_LIBRARY}
-    tinytiff
-    # REMOVED generator expressions for windows libs 
-)
-
-target_compile_definitions(view_sphere PRIVATE GLEW_STATIC)
-
-# Set output directory for view_sphere
-set_target_properties(view_sphere PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
-)
+    # Set output directory
+    set_target_properties(${TARGET} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
+endforeach()
