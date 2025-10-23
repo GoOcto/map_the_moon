@@ -292,21 +292,20 @@ class SphereViewerApp : public Application {
     GLint lightDirLoc_ = -1;
     GLint cameraPosLoc_ = -1;
 
-    float computeScrollZoomSpeed() const {
+    float calculateEasedRatio() const {
         const float range = std::max(kMaxCameraDistance - kMinCameraDistance, 1.0f);
         float ratio = (camera->distance - kMinCameraDistance) / range;
         ratio = std::clamp(ratio, 0.0f, 1.0f);
-        const float eased = powf(ratio, 0.707f); // * ratio;
-        return kScrollMinSpeed + (kScrollMaxSpeed - kScrollMinSpeed) * eased;
+        return powf(ratio, 0.707f);
+    }
+
+    float computeScrollZoomSpeed() const {
+        return kScrollMinSpeed + (kScrollMaxSpeed - kScrollMinSpeed) * this->calculateEasedRatio();
     }
 
     float computeOrbitSpeed() const {
-        const float range = std::max(kMaxCameraDistance - kMinCameraDistance, 1.0f);
-        float ratio = (camera->distance - kMinCameraDistance) / range;
-        ratio = std::clamp(ratio, 0.0f, 1.0f);
-        const float eased = powf(ratio, 0.707f); // * ratio;
         return kOrbitMinSpeedDegreesPerSecond +
-               (kOrbitMaxSpeedDegreesPerSecond - kOrbitMinSpeedDegreesPerSecond) * eased;
+               (kOrbitMaxSpeedDegreesPerSecond - kOrbitMinSpeedDegreesPerSecond) * this->calculateEasedRatio();
     }
 };
 
