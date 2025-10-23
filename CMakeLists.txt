@@ -25,17 +25,47 @@ set(GLM_INCLUDE_DIR ${LIBS_DIR}/glm/include)
 # STB
 set(STB_INCLUDE_DIR ${LIBS_DIR}/stb)
 
+set(TINYTIFF_DIR ${LIBS_DIR}/TinyTIFF)
+set(TINYTIFF_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)
+file(MAKE_DIRECTORY ${TINYTIFF_GENERATED_DIR})
+string(TIMESTAMP TINYTIFF_COMPILETIME "%Y-%m-%d")
+set(TINYTIFF_VERSION "3.0.0")
+set(TINYTIFF_GITVERSION "local")
+configure_file(${TINYTIFF_DIR}/tinytiff_version.h.in ${TINYTIFF_GENERATED_DIR}/tinytiff_version.h @ONLY)
+
+add_library(tinytiff STATIC
+    ${TINYTIFF_DIR}/tinytiffreader.c
+    ${TINYTIFF_DIR}/tinytiff_ctools_internal.c
+)
+set_source_files_properties(
+    ${TINYTIFF_DIR}/tinytiffreader.c
+    ${TINYTIFF_DIR}/tinytiff_ctools_internal.c
+    PROPERTIES LANGUAGE C
+)
+target_include_directories(tinytiff PUBLIC
+    ${TINYTIFF_DIR}
+    ${TINYTIFF_GENERATED_DIR}
+)
+target_compile_definitions(tinytiff PRIVATE
+    _CRT_SECURE_NO_WARNINGS
+    HAVE_FTELLI64
+)
+set_target_properties(tinytiff PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+)
+
 # Common source files
 set(COMMON_SOURCES
     src/color_map_sampler.cpp
 )
 
 # Add executables
-add_executable(lunar_viewer src/lunar_viewer.cpp ${COMMON_SOURCES})
+add_executable(view_tile src/view_tile.cpp ${COMMON_SOURCES})
 add_executable(view_sphere src/view_sphere.cpp ${COMMON_SOURCES})
 
-# Include directories for lunar_viewer
-target_include_directories(lunar_viewer PRIVATE
+# Include directories for view_tile
+target_include_directories(view_tile PRIVATE
     ${INCLUDE_DIR}
     ${GLEW_INCLUDE_DIR}
     ${GLFW_INCLUDE_DIR}
@@ -43,27 +73,20 @@ target_include_directories(lunar_viewer PRIVATE
     ${STB_INCLUDE_DIR}
 )
 
-# Link libraries for lunar_viewer
-target_link_libraries(lunar_viewer PRIVATE  # <-- Added PRIVATE keyword
+# Link libraries for view_tile
+target_link_libraries(view_tile PRIVATE  # <-- Added PRIVATE keyword
     OpenGL::GL
     ${GLEW_LIBRARY}
     ${GLFW_LIBRARY}
+    tinytiff
     # REMOVED generator expressions for windows libs 
 )
 
-target_compile_definitions(lunar_viewer PRIVATE GLEW_STATIC)
-
-if(WIN32)
-    target_link_libraries(lunar_viewer PRIVATE
-        ole32
-        windowscodecs
-        Dwmapi
-    )
-endif()
+target_compile_definitions(view_tile PRIVATE GLEW_STATIC)
 
 
 # Set output directory
-set_target_properties(lunar_viewer PROPERTIES
+set_target_properties(view_tile PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
@@ -81,19 +104,11 @@ target_link_libraries(view_sphere PRIVATE  # <-- Added PRIVATE keyword
     OpenGL::GL
     ${GLEW_LIBRARY}
     ${GLFW_LIBRARY}
+    tinytiff
     # REMOVED generator expressions for windows libs 
 )
 
 target_compile_definitions(view_sphere PRIVATE GLEW_STATIC)
-
-# --- ADDED THIS BLOCK to properly link view_sphere ---
-if(WIN32)
-    target_link_libraries(view_sphere PRIVATE
-        ole32
-        windowscodecs
-        Dwmapi
-    )
-endif()
 
 # Set output directory for view_sphere
 set_target_properties(view_sphere PROPERTIES

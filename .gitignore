@@ -5,7 +5,7 @@ src/*.[oa]
 lunar_viewer
 
 # VisualStudio dependencies
-libs/
+#libs/
 !.vscode/
 
 # VisualStudio build files
