@@ -214,8 +214,8 @@ class SphereViewerApp : public Application {
 
     void printControls() override {
         std::cout << "\n=== Sphere Viewer Controls ===" << std::endl;
-        std::cout << "W/S: Pitch camera" << std::endl;
-        std::cout << "A/D: Yaw camera" << std::endl;
+        std::cout << "W/S: Orbit camera N/S" << std::endl;
+        std::cout << "A/D: Orbit camera E/W" << std::endl;
         std::cout << "R/F: Increase/Decrease orbit distance" << std::endl;
         std::cout << "TAB: Toggle wireframe" << std::endl;
         std::cout << "ESC: Quit" << std::endl;
