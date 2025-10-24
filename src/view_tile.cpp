@@ -39,7 +39,7 @@ constexpr float kScrollFovStep = 2.0f;
 constexpr float kOrbitPanSpeed = 0.5f;
 constexpr float kShiftSpeed = 150.0f;
 constexpr float kNormalSpeed = 50.0f;
-constexpr float kLightAngleDegrees = 20.0f;
+constexpr float kLightAngleDegrees[] = { 20.0f, 45.0f, 70.0f };
 constexpr double kDefaultLatitudeDegrees = 15.0;
 constexpr double kDefaultLongitudeDegrees = 22.5;
 constexpr double kLatitudeStepDegrees = 0.1;
@@ -72,16 +72,25 @@ uniform mat4 projection;
 uniform float uCurvature;
 uniform vec2 uMeshCenter;
 
+uniform vec2 vNWCorner;
+uniform vec2 vSECorner;
+uniform uint dimensions;
+
 void main() {
     const float kEpsilon = 1e-6;
 
     vec2 centered = vec2(aPos.x - uMeshCenter.x, aPos.y - uMeshCenter.y);
     vec3 curved = vec3(centered, aPos.z);
 
-    if (abs(uCurvature) > kEpsilon) {
-        float radius = 1.0 / uCurvature;
-        float thetaX = centered.x * uCurvature;
-        float thetaY = centered.y * uCurvature;
+    float curvature = radians((vNWCorner.x - vSECorner.x)) / float(dimensions);
+    float lat = vNWCorner.y + (aPos.y / float(dimensions)) * (vSECorner.y - vNWCorner.y);
+    float lon = vNWCorner.x + (aPos.x / float(dimensions)) * (vSECorner.x - vNWCorner.x);
+    float latCenter = (vNWCorner.y + vSECorner.y) / 2.0;
+
+    if (abs(curvature) > kEpsilon) {
+        float radius = 1.0 / curvature;
+        float thetaX = centered.x * curvature;
+        float thetaY = centered.y * curvature;
 
         float sinX = sin(thetaX);
         float cosX = cos(thetaX);
@@ -93,6 +102,7 @@ void main() {
 
         float drop = radius * (2.0 - cosX - cosY);
         curved.z = aPos.z - drop;
+        //curved.x = (curved.x * sin(radians(lat)));
     }
 
     curved.x += uMeshCenter.x;
@@ -198,7 +208,12 @@ class LunarViewerApp : public Application {
         maxElevLoc_ = shader->getUniformLocation("maxElevation");
         lightDirLoc_ = shader->getUniformLocation("lightDirection");
         colorModeLoc_ = shader->getUniformLocation("colorMode");
+
         curvatureLoc_ = shader->getUniformLocation("uCurvature");
+        vNWCornerLoc_ = shader->getUniformLocation("vNWCorner");
+        vSECornerLoc_ = shader->getUniformLocation("vSECorner");
+        dimensionsLoc_ = shader->getUniformLocation("dimensions");
+        
         meshCenterLoc_ = shader->getUniformLocation("uMeshCenter");
 
         screenSize_ = glm::vec2(static_cast<float>(window->currentWidth), static_cast<float>(window->currentHeight));
@@ -206,7 +221,7 @@ class LunarViewerApp : public Application {
         fpsOverlay_.setScreenSize(screenSize_);
 
         lightDirection_ = glm::normalize(
-            glm::vec3(std::cos(glm::radians(kLightAngleDegrees)), 0.0f, std::sin(glm::radians(kLightAngleDegrees))));
+            glm::vec3(glm::radians(kLightAngleDegrees[0]), glm::radians(kLightAngleDegrees[1]), glm::radians(kLightAngleDegrees[2])));
 
         centerCamera();
     }
@@ -245,12 +260,12 @@ class LunarViewerApp : public Application {
         glUniform3fv(lightDirLoc_, 1, glm::value_ptr(lightDirection_));
         glUniform1f(colorModeLoc_, colorMode_);
 
-        if (curvatureLoc_ != -1) {
-            glUniform1f(curvatureLoc_, curvaturePerUnit_);
-        }
-        if (meshCenterLoc_ != -1) {
-            glUniform2f(meshCenterLoc_, static_cast<float>(width_) / 2.0f, static_cast<float>(height_) / 2.0f);
-        }
+        glUniform1f(curvatureLoc_, curvaturePerUnit_);
+        glUniform2f(meshCenterLoc_, static_cast<float>(width_) / 2.0f, static_cast<float>(height_) / 2.0f);
+
+        glUniform2fv(vNWCornerLoc_, 1, glm::value_ptr(nwCorner));
+        glUniform2fv(vSECornerLoc_, 1, glm::value_ptr(seCorner));
+        glUniform1ui(dimensionsLoc_, static_cast<GLuint>(width_));  // assuming square mesh
 
         mesh->draw();
         updateOverlayStatus();
@@ -278,21 +293,37 @@ class LunarViewerApp : public Application {
                 colorMode_ = 1.0f;
                 break;
 
-            case GLFW_KEY_KP_4:
+            case GLFW_KEY_KP_1:
+                adjustLatitude(-kLatitudeStepDegrees * samplingStep_);
                 adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
-                break;
-            case GLFW_KEY_KP_6:
-                adjustLongitude(kLongitudeStepDegrees * samplingStep_);
-                break;
-            case GLFW_KEY_KP_8:
-                adjustLatitude(kLatitudeStepDegrees * samplingStep_);
                 break;
             case GLFW_KEY_KP_2:
                 adjustLatitude(-kLatitudeStepDegrees * samplingStep_);
                 break;
-            case GLFW_KEY_KP_5:
-                resetViewPosition();
+            case GLFW_KEY_KP_3:
+                adjustLatitude(-kLatitudeStepDegrees * samplingStep_);
+                adjustLongitude(kLongitudeStepDegrees * samplingStep_);
                 break;
+            case GLFW_KEY_KP_4:
+                adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
+                break;
+            case GLFW_KEY_KP_5:
+            //     resetViewPosition();
+                break;
+            case GLFW_KEY_KP_6:
+                adjustLongitude(kLongitudeStepDegrees * samplingStep_);
+                break;
+            case GLFW_KEY_KP_7:
+                adjustLatitude(kLatitudeStepDegrees * samplingStep_);
+                adjustLongitude(-kLongitudeStepDegrees * samplingStep_);
+            case GLFW_KEY_KP_8:
+                adjustLatitude(kLatitudeStepDegrees * samplingStep_);
+                break;
+            case GLFW_KEY_KP_9:
+                adjustLatitude(kLatitudeStepDegrees * samplingStep_);
+                adjustLongitude(kLongitudeStepDegrees * samplingStep_);
+                break;
+
             case GLFW_KEY_KP_ADD:
                 samplingStep_ += 1;
                 if (samplingStep_ > 50)
@@ -318,9 +349,48 @@ class LunarViewerApp : public Application {
     }
 
     void mouseCallback(GLFWwindow* w, double xpos, double ypos) override {
+
+        const glm::vec2 mouseDelta = input->getMouseDelta(xpos, ypos);
+
+        if (input->leftMousePressed) {
+            camera->yaw -= mouseDelta.x * camera->sensitivity;
+            camera->pitch -= mouseDelta.y * camera->sensitivity;
+            camera->constrainPitch();
+            camera->updateVectors();
+        }
+
+        if (input->rightMousePressed) {
+            // rotate kLightAngleDegrees around Y axis
+            float angleY = std::atan2(lightDirection_.z, lightDirection_.x);
+            float angleX = std::asin(lightDirection_.y);
+            angleY += glm::radians(mouseDelta.x * 0.1f);
+            angleX += glm::radians(mouseDelta.y * 0.1f);
+
+            lightDirection_.x = std::cos(angleX) * std::cos(angleY);
+            lightDirection_.y = std::sin(angleX);
+            lightDirection_.z = std::cos(angleX) * std::sin(angleY);
+            lightDirection_ = glm::normalize(lightDirection_);
+        }
     }
 
     void scrollCallback(GLFWwindow* w, double xoffset, double yoffset) override {
+        // temporarily disabled
+        // camera->distance -= static_cast<float>(yoffset) * kScrollZoomFactor;
+        // camera->distance = std::clamp(camera->distance, kMinDistance, kMaxDistance);
+        // camera->updateVectors();
+
+        static double accumulator = 0.0;
+        accumulator += yoffset;
+
+        const int stepChange = static_cast<int>(std::round(accumulator));
+        if (stepChange != 0) {
+            samplingStep_ -= stepChange;
+            if (samplingStep_ < 1)  samplingStep_ = 1;
+            if (samplingStep_ > 50) samplingStep_ = 50;
+            accumulator -= static_cast<double>(stepChange);
+            needsReload_ = true;
+        }
+
     }
 
   private:
@@ -513,6 +583,18 @@ class LunarViewerApp : public Application {
         }
 
         curvaturePerUnit_ = std::max(curvatureLon, curvatureLat);
+
+        const float nwLat = (static_cast<float>(povLatitudeDegrees_) + latSpanDegrees * 0.5f);
+        const float nwLon = (static_cast<float>(povLongitudeDegrees_) - lonSpanDegrees * 0.5f);
+        const float seLat = (static_cast<float>(povLatitudeDegrees_) - latSpanDegrees * 0.5f);
+        const float seLon = (static_cast<float>(povLongitudeDegrees_) + lonSpanDegrees * 0.5f);
+        nwCorner = glm::vec2(nwLat, nwLon);
+        seCorner = glm::vec2(seLat, seLon);
+
+        std::cout << "NW Corner: (" << nwCorner.x << " lat, " << nwCorner.y << " lon), "
+                  << "SE Corner: (" << seCorner.x << " lat, " << seCorner.y << " lon)" << std::endl;
+        std::cout << "dimensions: " << width_ << "x" << height_ << std::endl;
+
         totalLonSpanDegrees_ = lonSpanDegrees;
         totalLatSpanDegrees_ = latSpanDegrees;
     }
@@ -579,6 +661,11 @@ class LunarViewerApp : public Application {
     GLint meshCenterLoc_ = -1;
     float colorMode_ = 0.0f; // 0.0 for relief coloring, 1.0 for vertex color (from colormap)
     float curvaturePerUnit_ = 0.0f;
+    GLint vNWCornerLoc_ = -1;
+    GLint vSECornerLoc_ = -1;
+    GLint dimensionsLoc_ = -1;
+    glm::vec2 nwCorner = glm::vec2(0.0f);
+    glm::vec2 seCorner = glm::vec2(0.0f);
     float totalLonSpanDegrees_ = 0.0f;
     float totalLatSpanDegrees_ = 0.0f;
 };
