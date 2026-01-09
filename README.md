@@ -32,34 +32,28 @@ python download_dem_data.py
 
 This downloads NASA LOLA elevation tiles (~1.32 GB each) to `.data/` directory.
 
+![Screenshot of the app](Screenshot.png "Screenshot")
+
+
 ## Features
 
-✅ **Real-time 3D rendering** - 60-300+ FPS with OpenGL
-✅ **Orbit camera mode** - Intuitive mouse controls (like Blender/Maya)
-✅ **FPS fly mode** - Game-style WASD navigation
-✅ **1024×1024 mesh** - Over 1 million vertices rendered smoothly
-✅ **Terrain coloring** - Shader-based elevation visualization
-✅ **Wireframe toggle** - See mesh structure
-✅ **Fast loading** - Loads 1.32 GB files in <1 second
+- ✅ **Real-time 3D rendering** - 60-300+ FPS with OpenGL
+- ✅ **Orbit camera mode** - Intuitive mouse controls (like Blender/Maya)
+- ✅ **FPS fly mode** - Game-style WASD navigation
+- ✅ **1024×1024 mesh** - Over 1 million vertices rendered smoothly
+- ✅ **Terrain coloring** - Shader-based elevation visualization
+- ✅ **Wireframe toggle** - See mesh structure
+- ✅ **Fast loading** - Loads chunked data from 1.32 GB files in <1 second
 
 ## Controls
 
-### Orbit Mode (Default)
-- **Left-click + drag** - Rotate around terrain
-- **Right-click + drag** - Pan camera
+### Keyboard and Mouse
+- **Left-click + drag** - Move camera
+- **Right-click + drag** - Change light direction
 - **Scroll wheel** - Zoom in/out
-- **WASD/QE** - Move target point
-
-### FPS Mode (Press Space to toggle)
+- **NumPad 0-9** - Move forward/back/left/right
 - **Mouse** - Look around (cursor locked)
-- **WASD** - Move forward/back/left/right
-- **Q/E** - Move up/down
-- **Shift** - Sprint (3x speed)
-
-### Other
-- **Space** - Toggle orbit/FPS mode
 - **R** - Reset camera
-- **Tab** - Toggle wireframe
 - **ESC** - Quit
 
 ## Data Information
@@ -140,3 +134,6 @@ These are optional - the C++ viewer is the main application.
 
 Open source demonstration code. Free to use and modify.
 
+## Notes
+
+To work in Windows, the setup is a bit more complicated and involves setting up VSCode (or your IDE) to work with your compiler and build tools.
