@@ -27,7 +27,7 @@ If you don't have data files yet:
 
 ```bash
 # Download lunar elevation data (optional Python tool)
-python download_dem_data.py
+python scripts/download_dem.py
 ```
 
 This downloads NASA LOLA elevation tiles (~1.32 GB each) to `.data/` directory.
