@@ -1,10 +1,10 @@
 # Lunar Surface Viewer
 
-High-performance 3D visualization of NASA's lunar elevation data with game-like navigation controls.
+3D visualization of NASA's lunar elevation data with game-like navigation controls.
 
 ## Overview
 
-This project provides a real-time OpenGL-based viewer for exploring high-resolution lunar surface data from NASA's LOLA (Lunar Orbiter Laser Altimeter) instrument. The viewer features smooth 60+ FPS rendering, intuitive orbit/FPS camera controls, and can handle massive 1.32 GB terrain files efficiently.
+This project provides a real-time OpenGL-based viewer for exploring high-res lunar surface data from NASA's LOLA (Lunar Orbiter Laser Altimeter) instrument.
 
 ## Quick Start
 
