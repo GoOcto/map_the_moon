@@ -15,10 +15,14 @@ This project provides a real-time OpenGL-based viewer for exploring high-res lun
 sudo apt-get install build-essential libglew-dev libglfw3-dev libglm-dev
 
 # Build
+mkdir build
+cd build
+cmake ..
 make
 
 # Run
-./lunar_viewer
+cd ..
+build/view_tile
 ```
 
 ### First Time Setup
