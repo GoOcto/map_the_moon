@@ -16,3 +16,4 @@ build-debug/
 # custom
 # user can decide if they want to use CMakeLists.win10.txt or CMakeLists.linux.txt
 *.dll
+scratch/
