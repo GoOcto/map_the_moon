@@ -114,3 +114,50 @@ target_compile_definitions(view_sphere PRIVATE GLEW_STATIC)
 set_target_properties(view_sphere PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# ---------------------------------------------------------------------------
+# tinyexr — header-only but needs miniz as a static library
+# ---------------------------------------------------------------------------
+set(TINYEXR_DIR ${LIBS_DIR}/tinyexr)
+
+add_library(miniz STATIC ${TINYEXR_DIR}/miniz.c)
+set_source_files_properties(${TINYEXR_DIR}/miniz.c PROPERTIES LANGUAGE C)
+target_include_directories(miniz PUBLIC ${TINYEXR_DIR})
+set_target_properties(miniz PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+target_compile_definitions(miniz PRIVATE _CRT_SECURE_NO_WARNINGS)
+
+# ---------------------------------------------------------------------------
+# view_tile_new — OpenEXR pyramid viewer
+# ---------------------------------------------------------------------------
+add_executable(view_tile_new
+    src/view_tile_new.cpp
+    src/tinyexr_impl.cpp
+    ${COMMON_SOURCES}
+)
+
+target_include_directories(view_tile_new PRIVATE
+    ${INCLUDE_DIR}
+    ${GLEW_INCLUDE_DIR}
+    ${GLFW_INCLUDE_DIR}
+    ${GLM_INCLUDE_DIR}
+    ${STB_INCLUDE_DIR}
+    ${TINYEXR_DIR}
+)
+
+target_compile_definitions(view_tile_new PRIVATE
+    GLEW_STATIC
+    TINYEXR_USE_MINIZ=1
+    _CRT_SECURE_NO_WARNINGS
+)
+
+target_link_libraries(view_tile_new PRIVATE
+    OpenGL::GL
+    ${GLEW_LIBRARY}
+    ${GLFW_LIBRARY}
+    tinytiff
+    miniz
+)
+
+set_target_properties(view_tile_new PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
